@@ -2,6 +2,7 @@ import { useState } from 'react'
 import { useNavigate, Link } from 'react-router-dom'
 import { Building2, Mail, Lock, Eye, EyeOff, Phone, Shield } from 'lucide-react'
 import { useAuth } from '../../context/AuthContext'
+import { supabase } from '../../lib/supabase'
 import toast from 'react-hot-toast'
 
 export default function LoginPage() {
@@ -32,7 +33,6 @@ export default function LoginPage() {
         }
         
         // Wait a small tick for AuthContext state to sync profile
-        const { supabase } = await import('../../lib/supabase')
         const { data: prof } = await supabase.from('profiles').select('role').eq('id', data.user.id).single()
 
         if (prof?.role === 'admin' || prof?.role === 'hr') {

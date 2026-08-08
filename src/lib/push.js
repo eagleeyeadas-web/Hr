@@ -116,7 +116,6 @@ export async function registerPushNotifications(
         user_id: userId || null,
         employee_phone: employeePhone || null,
         subscription: subscriptionData,
-        updated_at: new Date().toISOString(),
       });
 
     if (error) {

@@ -68,6 +68,7 @@ export function AuthProvider({ children }) {
         return
       }
 
+      setLoading(true)
       setUser(session?.user ?? null)
       if (session?.user) {
         await fetchProfileAndEmployee(session.user.id)
@@ -82,6 +83,12 @@ export function AuthProvider({ children }) {
   }, [])
 
   const signInHR = async (email, password) => {
+    // Clear any existing employee state
+    localStorage.removeItem('employee_phone')
+    setEmployee(null)
+    setProfile(null)
+    setUser(null)
+
     const { data, error } = await supabase.auth.signInWithPassword({ email, password })
     return { data, error }
   }
@@ -97,9 +104,15 @@ export function AuthProvider({ children }) {
       throw new Error('Employee with this phone number not found.')
     }
 
+    // Set employee state and localStorage first so that onAuthStateChange doesn't override it
     setEmployee(data)
     setProfile({ role: 'employee' })
     localStorage.setItem('employee_phone', data.phone)
+    setUser(null)
+
+    // Sign out of Supabase auth (in case an HR was logged in)
+    await supabase.auth.signOut()
+
     return data
   }
 
