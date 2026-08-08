@@ -118,10 +118,22 @@ export default function ApplyLeave() {
       })
 
       // Insert notifications for all HR/Admin roles
-      const { data: hrUsers } = await supabase
+      const { data: hrUsers, error: hrLookupErr } = await supabase
         .from('profiles')
         .select('id')
         .in('role', ['admin', 'hr'])
+
+      // =============================================
+      // [HR TARGET DEBUG]
+      // =============================================
+      console.log('[HR TARGET DEBUG]');
+      console.log('HR lookup error:', hrLookupErr || 'none');
+      console.log('HR users found:', hrUsers?.length ?? 0);
+      if (hrUsers && hrUsers.length > 0) {
+        console.log('resolved HR user ids:', hrUsers.map(h => h.id));
+      } else {
+        console.warn('[HR TARGET DEBUG] ⚠️ No HR/Admin users found in profiles table. Notifications will NOT be delivered to HR.');
+      }
 
       if (hrUsers && hrUsers.length > 0) {
         const hrNotifications = hrUsers.map(hr => ({
@@ -131,7 +143,18 @@ export default function ApplyLeave() {
           type: 'leave',
           related_id: insertedReq.id
         }))
+
+        // =============================================
+        // [LIVE PUSH DEBUG]
+        // =============================================
+        console.log('[LIVE PUSH DEBUG]');
+        console.log('send-push called: true (via DB webhook on notification insert)');
+        console.log('target user ids:', hrUsers.map(h => h.id));
+        console.log('notification type: leave');
+        console.log('related_id:', insertedReq.id);
+
         await supabase.from('notifications').insert(hrNotifications)
+        console.log('[LIVE PUSH DEBUG] HR notification rows inserted:', hrNotifications.length);
       }
 
       // Audit log

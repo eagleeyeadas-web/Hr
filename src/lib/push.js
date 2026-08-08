@@ -28,6 +28,16 @@ export async function registerPushNotifications(
   userId = null,
   employeePhone = null
 ) {
+  // =============================================
+  // [AUTH DEBUG]
+  // =============================================
+  console.log("[AUTH DEBUG]");
+  console.log("current auth user id:", userId || "(none — employee session)");
+  console.log(
+    "current user role:",
+    userId ? "hr/admin" : "employee"
+  );
+
   // Check browser support
   if (!("serviceWorker" in navigator)) {
     console.warn("Service Worker is not supported.");
@@ -93,13 +103,22 @@ export async function registerPushNotifications(
     const subscriptionData =
       subscription.toJSON();
 
+    // =============================================
+    // [PUSH SUBSCRIPTION DEBUG]
+    // =============================================
+    console.log("[PUSH SUBSCRIPTION DEBUG]");
     console.log(
-      "Push subscription:",
-      subscriptionData
+      "subscription endpoint hostname:",
+      new URL(subscriptionData.endpoint).hostname
     );
-
-    console.log("HR User ID:", userId);
-    console.log("Employee Phone:", employeePhone);
+    console.log(
+      "subscription user_id (HR):",
+      userId || "null (employee session — expected)"
+    );
+    console.log(
+      "subscription employee_phone:",
+      employeePhone || "null (HR session — expected)"
+    );
 
     // 5. Make sure recipient exists
     if (!userId && !employeePhone) {
@@ -109,14 +128,21 @@ export async function registerPushNotifications(
       return;
     }
 
-    // 6. Save subscription in Supabase
+    // 6. Save subscription in Supabase using upsert
+    // onConflict: endpoint ensures no duplicate rows per device
     const { error } = await supabase
       .from("push_subscriptions")
-      .insert({
-        user_id: userId || null,
-        employee_phone: employeePhone || null,
-        subscription: subscriptionData,
-      });
+      .upsert(
+        {
+          user_id: userId || null,
+          employee_phone: employeePhone || null,
+          subscription: subscriptionData,
+          endpoint: subscriptionData.endpoint,
+        },
+        {
+          onConflict: "endpoint",
+        }
+      );
 
     if (error) {
       console.error(
@@ -126,6 +152,8 @@ export async function registerPushNotifications(
       return;
     }
 
+    console.log("[PUSH SUBSCRIPTION DEBUG]");
+    console.log("subscription found: true (saved/updated successfully)");
     console.log(
       "✅ Push subscription saved successfully!"
     );

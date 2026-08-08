@@ -65,10 +65,22 @@ export default function PermissionRequest() {
       })
 
       // Query all HR admin profiles
-      const { data: hrUsers } = await supabase
+      const { data: hrUsers, error: hrLookupErr } = await supabase
         .from('profiles')
         .select('id')
         .in('role', ['admin', 'hr'])
+
+      // =============================================
+      // [HR TARGET DEBUG]
+      // =============================================
+      console.log('[HR TARGET DEBUG]');
+      console.log('HR lookup error:', hrLookupErr || 'none');
+      console.log('HR users found:', hrUsers?.length ?? 0);
+      if (hrUsers && hrUsers.length > 0) {
+        console.log('resolved HR user ids:', hrUsers.map(h => h.id));
+      } else {
+        console.warn('[HR TARGET DEBUG] ⚠️ No HR/Admin users found in profiles table.');
+      }
 
       // Insert HR notification for all admins
       if (hrUsers && hrUsers.length > 0) {
@@ -79,7 +91,18 @@ export default function PermissionRequest() {
           type: 'permission',
           related_id: insertedReq.id
         }))
+
+        // =============================================
+        // [LIVE PUSH DEBUG]
+        // =============================================
+        console.log('[LIVE PUSH DEBUG]');
+        console.log('send-push called: true (via DB webhook on notification insert)');
+        console.log('target user ids:', hrUsers.map(h => h.id));
+        console.log('notification type: permission');
+        console.log('related_id:', insertedReq.id);
+
         await supabase.from('notifications').insert(hrNotifications)
+        console.log('[LIVE PUSH DEBUG] HR notification rows inserted:', hrNotifications.length);
       }
 
       // Insert audit log
