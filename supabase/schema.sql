@@ -86,14 +86,28 @@ CREATE TABLE IF NOT EXISTS public.permission_requests (
 -- 5. NOTIFICATIONS
 -- ============================================================
 CREATE TABLE IF NOT EXISTS public.notifications (
-  id            UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
-  user_id       UUID NOT NULL REFERENCES auth.users(id) ON DELETE CASCADE,
-  title         TEXT NOT NULL,
-  message       TEXT NOT NULL,
-  type          TEXT NOT NULL CHECK (type IN ('leave', 'permission', 'system')) DEFAULT 'system',
-  is_read       BOOLEAN DEFAULT FALSE,
-  related_id    UUID,
-  created_at    TIMESTAMPTZ DEFAULT NOW()
+  id              UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+  user_id         UUID REFERENCES auth.users(id) ON DELETE CASCADE,
+  employee_phone  TEXT,
+  title           TEXT NOT NULL,
+  message         TEXT NOT NULL,
+  type            TEXT NOT NULL CHECK (type IN ('leave', 'permission', 'system')) DEFAULT 'system',
+  is_read         BOOLEAN DEFAULT FALSE,
+  related_id      UUID,
+  created_at      TIMESTAMPTZ DEFAULT NOW()
+);
+
+-- ============================================================
+-- 5b. PUSH SUBSCRIPTIONS
+-- ============================================================
+CREATE TABLE IF NOT EXISTS public.push_subscriptions (
+  id              UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+  user_id         UUID REFERENCES auth.users(id) ON DELETE CASCADE,
+  employee_phone  TEXT,
+  subscription    JSONB NOT NULL,
+  created_at      TIMESTAMPTZ DEFAULT NOW(),
+  CONSTRAINT unique_user_subscription UNIQUE (user_id, subscription),
+  CONSTRAINT unique_employee_subscription UNIQUE (employee_phone, subscription)
 );
 
 -- ============================================================
@@ -549,15 +563,39 @@ CREATE POLICY "HR can update all permission requests" ON public.permission_reque
 -- ============================================================
 DROP POLICY IF EXISTS "Users can view own notifications" ON public.notifications;
 CREATE POLICY "Users can view own notifications" ON public.notifications
-  FOR SELECT USING (user_id = auth.uid());
+  FOR SELECT USING (user_id = auth.uid() OR employee_phone IS NOT NULL);
 
 DROP POLICY IF EXISTS "Users can update own notifications" ON public.notifications;
 CREATE POLICY "Users can update own notifications" ON public.notifications
-  FOR UPDATE USING (user_id = auth.uid());
+  FOR UPDATE USING (user_id = auth.uid() OR employee_phone IS NOT NULL);
 
 DROP POLICY IF EXISTS "HR can insert notifications" ON public.notifications;
 CREATE POLICY "HR can insert notifications" ON public.notifications
   FOR INSERT WITH CHECK (true);
+
+-- ============================================================
+-- RLS: PUSH SUBSCRIPTIONS
+-- ============================================================
+ALTER TABLE public.push_subscriptions ENABLE ROW LEVEL SECURITY;
+
+DROP POLICY IF EXISTS "Allow all access to push subscriptions" ON public.push_subscriptions;
+CREATE POLICY "Allow all access to push subscriptions" ON public.push_subscriptions
+  FOR ALL USING (true) WITH CHECK (true);
+
+-- ============================================================
+-- TRIGGER: Webhook to send-push Edge Function
+-- ============================================================
+-- This trigger calls the send-push Edge Function when a new notification is inserted.
+CREATE OR REPLACE TRIGGER trg_on_notification_inserted
+  AFTER INSERT ON public.notifications
+  FOR EACH ROW
+  EXECUTE FUNCTION supabase_functions.http_request(
+    'https://qabtydijzsvfejeyrakc.supabase.co/functions/v1/send-push',
+    'POST',
+    '{"Content-Type":"application/json"}',
+    '{}',
+    '1000'
+  );
 
 -- ============================================================
 -- RLS: AUDIT LOGS

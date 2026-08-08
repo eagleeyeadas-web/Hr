@@ -1,6 +1,6 @@
 import { supabase } from './supabase'
 
-const VAPID_PUBLIC_KEY = 'BD8WYifkjqnoTLo1NEulB4ixg8cdACPmj1zq6eH9npA7MRy2WlCjB0tK7NoTtYnSWywuO9fvvLBU8UYZX12WRkA'
+const VAPID_PUBLIC_KEY = 'BKMzRuoGj1VvNHiCdDrvTrPx8RmWqfBvLYnfkQAkB-eCeF4uCNrLpEfkHBF5zPcAzEYKA0I3Qp0764CTgBcqq5c'
 
 // Helper to convert base64 to Uint8Array for VAPID key registration
 function urlBase64ToUint8Array(base64String) {
