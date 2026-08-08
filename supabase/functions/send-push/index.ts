@@ -1,112 +1,492 @@
-import { serve } from "https://deno.land/std@0.168.0/http/server.ts"
-import { createClient } from "https://esm.sh/@supabase/supabase-js@2"
-import webpush from "npm:web-push"
+import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
+import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
+import webpush from "npm:web-push";
 
-// Configure VAPID details (environment variables in Supabase Secrets)
-const VAPID_PUBLIC_KEY = Deno.env.get("VAPID_PUBLIC_KEY") || ""
-const VAPID_PRIVATE_KEY = Deno.env.get("VAPID_PRIVATE_KEY") || ""
-const VAPID_EMAIL = Deno.env.get("VAPID_EMAIL") || "mailto:admin@company.com"
+// =====================================================
+// CONFIGURATION
+// =====================================================
 
-if (VAPID_PUBLIC_KEY && VAPID_PRIVATE_KEY) {
+const VAPID_PUBLIC_KEY = Deno.env.get("VAPID_PUBLIC_KEY") || "";
+const VAPID_PRIVATE_KEY = Deno.env.get("VAPID_PRIVATE_KEY") || "";
+
+const VAPID_EMAIL =
+  Deno.env.get("VAPID_EMAIL") || "mailto:admin@company.com";
+
+// LIVE HR WEBSITE
+const APP_URL = "https://hr-portal-login.vercel.app";
+
+// =====================================================
+// VAPID CONFIGURATION
+// =====================================================
+
+if (!VAPID_PUBLIC_KEY || !VAPID_PRIVATE_KEY) {
+  console.error("❌ VAPID keys are missing.");
+} else {
   webpush.setVapidDetails(
     VAPID_EMAIL,
     VAPID_PUBLIC_KEY,
     VAPID_PRIVATE_KEY
-  )
+  );
+
+  console.log("✅ VAPID configuration loaded.");
 }
 
+// =====================================================
+// SUPABASE ADMIN CLIENT
+// =====================================================
+
+const SUPABASE_URL =
+  Deno.env.get("SUPABASE_URL") || "";
+
+const SUPABASE_SERVICE_ROLE_KEY =
+  Deno.env.get("SUPABASE_SERVICE_ROLE_KEY") || "";
+
+const supabase = createClient(
+  SUPABASE_URL,
+  SUPABASE_SERVICE_ROLE_KEY
+);
+
+// =====================================================
+// CORS
+// =====================================================
+
+const corsHeaders = {
+  "Access-Control-Allow-Origin": "*",
+  "Access-Control-Allow-Headers":
+    "authorization, x-client-info, apikey, content-type",
+  "Access-Control-Allow-Methods":
+    "POST, OPTIONS",
+};
+
+// =====================================================
+// EDGE FUNCTION
+// =====================================================
+
 serve(async (req) => {
-  // CORS support
-  if (req.method === 'OPTIONS') {
-    return new Response('ok', {
-      headers: {
-        'Access-Control-Allow-Origin': '*',
-        'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
-      }
-    })
+  // ---------------------------------------------------
+  // OPTIONS / CORS
+  // ---------------------------------------------------
+
+  if (req.method === "OPTIONS") {
+    return new Response("ok", {
+      headers: corsHeaders,
+    });
   }
 
   try {
-    const payload = await req.json()
-    const { record, type, table } = payload
+    console.log("====================================");
+    console.log("🔔 SEND-PUSH FUNCTION STARTED");
+    console.log("====================================");
 
-    // Only process inserts to notifications table
-    if (type !== 'INSERT' || table !== 'notifications') {
-      return new Response(JSON.stringify({ message: "Skipped. Event is not a notification insert." }), {
-        headers: { 'Content-Type': 'application/json' },
-        status: 200
-      })
+    // ---------------------------------------------------
+    // CHECK VAPID CONFIGURATION
+    // ---------------------------------------------------
+
+    if (!VAPID_PUBLIC_KEY || !VAPID_PRIVATE_KEY) {
+      console.error("❌ VAPID keys are not configured.");
+
+      return new Response(
+        JSON.stringify({
+          success: false,
+          error: "VAPID keys are missing",
+        }),
+        {
+          status: 500,
+          headers: {
+            ...corsHeaders,
+            "Content-Type": "application/json",
+          },
+        }
+      );
     }
 
-    const { user_id, employee_phone, title, message, type: notifType, related_id } = record
+    // ---------------------------------------------------
+    // READ WEBHOOK PAYLOAD
+    // ---------------------------------------------------
 
-    // Initialize Supabase Client with Admin privilege key (Service Role)
-    const supabaseUrl = Deno.env.get("SUPABASE_URL") || ""
-    const supabaseServiceKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY") || ""
-    const supabase = createClient(supabaseUrl, supabaseServiceKey)
+    const payload = await req.json();
 
-    // Query active push subscriptions for recipient (user_id for HR, employee_phone for Employees)
-    let query = supabase.from("push_subscriptions").select("subscription")
-    if (employee_phone) {
-      query = query.eq("employee_phone", employee_phone)
-    } else if (user_id) {
-      query = query.eq("user_id", user_id)
-    } else {
-      return new Response(JSON.stringify({ message: "Skipped. No recipient specified." }), {
-        headers: { 'Content-Type': 'application/json' },
-        status: 200
-      })
+    console.log("📦 Webhook payload:");
+    console.log(JSON.stringify(payload, null, 2));
+
+    const { record, type, table } = payload;
+
+    // ---------------------------------------------------
+    // CHECK EVENT
+    // ---------------------------------------------------
+
+    if (
+      type !== "INSERT" ||
+      table !== "notifications"
+    ) {
+      console.log("ℹ️ Ignoring unrelated database event.");
+
+      return new Response(
+        JSON.stringify({
+          success: true,
+          message: "Event ignored",
+        }),
+        {
+          status: 200,
+          headers: {
+            ...corsHeaders,
+            "Content-Type": "application/json",
+          },
+        }
+      );
     }
 
-    const { data: subscriptions, error: fetchErr } = await query
-    if (fetchErr) throw fetchErr
+    // ---------------------------------------------------
+    // CHECK RECORD
+    // ---------------------------------------------------
 
-    if (!subscriptions || subscriptions.length === 0) {
-      return new Response(JSON.stringify({ message: "No active push subscriptions found." }), {
-        headers: { 'Content-Type': 'application/json' },
-        status: 200
-      })
+    if (!record) {
+      console.error(
+        "❌ Webhook did not contain a notification record."
+      );
+
+      return new Response(
+        JSON.stringify({
+          success: false,
+          error: "Notification record missing",
+        }),
+        {
+          status: 400,
+          headers: {
+            ...corsHeaders,
+            "Content-Type": "application/json",
+          },
+        }
+      );
     }
 
-    // Determine target redirect url based on notification context
-    const relativeUrl = notifType === 'leave' ? '/hr/leave' : notifType === 'permission' ? '/hr/permissions' : '/'
-    const redirectUrl = `http://localhost:5173${relativeUrl}`
+    // ---------------------------------------------------
+    // GET NOTIFICATION DATA
+    // ---------------------------------------------------
 
-    const notificationPayload = JSON.stringify({
+    const {
+      user_id,
+      employee_phone,
       title,
-      body: message,
-      icon: '/logo.png',
-      data: { url: redirectUrl }
-    })
+      message,
+      type: notificationType,
+      related_id,
+    } = record;
 
-    console.log(`Delivering push payload to ${subscriptions.length} subscription endpoints...`)
+    console.log("====================================");
+    console.log("📩 NOTIFICATION RECEIVED");
+    console.log("HR User ID:", user_id);
+    console.log("Employee Phone:", employee_phone);
+    console.log("Title:", title);
+    console.log("Message:", message);
+    console.log("Notification Type:", notificationType);
+    console.log("Related ID:", related_id);
+    console.log("====================================");
 
-    const sendPromises = subscriptions.map((sub) => {
-      return webpush.sendNotification(sub.subscription, notificationPayload)
-        .catch(async (err) => {
-          console.error("Push dispatch failed:", err.message)
-          // Clean up subscription from DB if expired/invalid (404/410)
-          if (err.statusCode === 404 || err.statusCode === 410) {
+    // ---------------------------------------------------
+    // CHECK RECIPIENT
+    // ---------------------------------------------------
+
+    if (!user_id && !employee_phone) {
+      console.error(
+        "❌ No user_id or employee_phone found."
+      );
+
+      return new Response(
+        JSON.stringify({
+          success: false,
+          error: "No notification recipient found",
+        }),
+        {
+          status: 400,
+          headers: {
+            ...corsHeaders,
+            "Content-Type": "application/json",
+          },
+        }
+      );
+    }
+
+    // ---------------------------------------------------
+    // FIND PUSH SUBSCRIPTIONS
+    // ---------------------------------------------------
+
+    let subscriptions: Array<{
+      id: string;
+      subscription: any;
+    }> = [];
+
+    // ---------------------------------------------------
+    // HR NOTIFICATION
+    // ---------------------------------------------------
+
+    if (user_id) {
+      console.log(
+        "🔎 Searching HR push subscription..."
+      );
+
+      console.log(
+        "HR user_id:",
+        user_id
+      );
+
+      const { data, error } = await supabase
+        .from("push_subscriptions")
+        .select("id, subscription")
+        .eq("user_id", user_id);
+
+      if (error) {
+        console.error(
+          "❌ Failed to find HR subscription:",
+          error
+        );
+
+        throw error;
+      }
+
+      subscriptions = data || [];
+    }
+
+    // ---------------------------------------------------
+    // EMPLOYEE NOTIFICATION
+    // ---------------------------------------------------
+
+    else if (employee_phone) {
+      console.log(
+        "🔎 Searching employee push subscription..."
+      );
+
+      console.log(
+        "Employee phone:",
+        employee_phone
+      );
+
+      const { data, error } = await supabase
+        .from("push_subscriptions")
+        .select("id, subscription")
+        .eq(
+          "employee_phone",
+          employee_phone
+        );
+
+      if (error) {
+        console.error(
+          "❌ Failed to find employee subscription:",
+          error
+        );
+
+        throw error;
+      }
+
+      subscriptions = data || [];
+    }
+
+    // ---------------------------------------------------
+    // NO SUBSCRIPTION
+    // ---------------------------------------------------
+
+    if (subscriptions.length === 0) {
+      console.error(
+        "❌ No push subscription found."
+      );
+
+      return new Response(
+        JSON.stringify({
+          success: false,
+          message:
+            "No active push subscription found for recipient.",
+        }),
+        {
+          status: 200,
+          headers: {
+            ...corsHeaders,
+            "Content-Type": "application/json",
+          },
+        }
+      );
+    }
+
+    console.log(
+      `✅ Found ${subscriptions.length} push subscription(s).`
+    );
+
+    // ---------------------------------------------------
+    // DETERMINE NOTIFICATION CLICK URL
+    // ---------------------------------------------------
+
+    let relativeUrl = "/";
+
+    if (notificationType === "leave") {
+      relativeUrl = "/hr/leave";
+    }
+
+    if (notificationType === "permission") {
+      relativeUrl = "/hr/permissions";
+    }
+
+    const redirectUrl =
+      `${APP_URL}${relativeUrl}`;
+
+    console.log(
+      "🌐 Notification click URL:",
+      redirectUrl
+    );
+
+    // ---------------------------------------------------
+    // CREATE PUSH PAYLOAD
+    // ---------------------------------------------------
+
+    const notificationPayload =
+      JSON.stringify({
+        title:
+          title || "HR Portal",
+
+        body:
+          message ||
+          "You have a new notification.",
+
+        icon:
+          `${APP_URL}/favicon.svg`,
+
+        badge:
+          `${APP_URL}/favicon.svg`,
+
+        data: {
+          url: redirectUrl,
+          related_id:
+            related_id || null,
+          type:
+            notificationType || null,
+        },
+      });
+
+    // ---------------------------------------------------
+    // SEND PUSH NOTIFICATIONS
+    // ---------------------------------------------------
+
+    let sentCount = 0;
+    let failedCount = 0;
+
+    console.log(
+      "📤 Sending push notification..."
+    );
+
+    for (const sub of subscriptions) {
+      try {
+        await webpush.sendNotification(
+          sub.subscription,
+          notificationPayload
+        );
+
+        sentCount++;
+
+        console.log(
+          "✅ Push notification sent successfully."
+        );
+      } catch (error: any) {
+        failedCount++;
+
+        console.error(
+          "❌ Push notification failed:",
+          error?.message || error
+        );
+
+        console.error(
+          "Status code:",
+          error?.statusCode
+        );
+
+        // ------------------------------------------------
+        // REMOVE EXPIRED SUBSCRIPTION
+        // ------------------------------------------------
+
+        if (
+          error?.statusCode === 404 ||
+          error?.statusCode === 410
+        ) {
+          console.log(
+            "🗑️ Removing expired subscription:",
+            sub.id
+          );
+
+          const { error: deleteError } =
             await supabase
               .from("push_subscriptions")
               .delete()
-              .eq("subscription", sub.subscription)
+              .eq("id", sub.id);
+
+          if (deleteError) {
+            console.error(
+              "❌ Failed to delete expired subscription:",
+              deleteError
+            );
+          } else {
+            console.log(
+              "✅ Expired subscription removed."
+            );
           }
-        })
-    })
+        }
+      }
+    }
 
-    await Promise.all(sendPromises)
+    // ---------------------------------------------------
+    // RESULT
+    // ---------------------------------------------------
 
-    return new Response(JSON.stringify({ success: true, sent_count: subscriptions.length }), {
-      headers: { 'Content-Type': 'application/json' },
-      status: 200
-    })
+    console.log("====================================");
+    console.log("🏁 PUSH PROCESS FINISHED");
+    console.log(
+      `📤 Sent: ${sentCount}`
+    );
+    console.log(
+      `❌ Failed: ${failedCount}`
+    );
+    console.log(
+      `📱 Total subscriptions: ${subscriptions.length}`
+    );
+    console.log("====================================");
 
-  } catch (err) {
-    console.error("Fatal send-push error:", err)
-    return new Response(JSON.stringify({ error: err.message }), {
-      headers: { 'Content-Type': 'application/json' },
-      status: 500
-    })
+    return new Response(
+      JSON.stringify({
+        success: true,
+        sent_count: sentCount,
+        failed_count: failedCount,
+        total_subscriptions:
+          subscriptions.length,
+      }),
+      {
+        status: 200,
+        headers: {
+          ...corsHeaders,
+          "Content-Type": "application/json",
+        },
+      }
+    );
+
+  } catch (error: any) {
+    // ---------------------------------------------------
+    // FATAL ERROR
+    // ---------------------------------------------------
+
+    console.error("====================================");
+    console.error("🔥 FATAL SEND-PUSH ERROR");
+    console.error(error);
+    console.error("====================================");
+
+    return new Response(
+      JSON.stringify({
+        success: false,
+        error:
+          error?.message ||
+          "Unknown error",
+      }),
+      {
+        status: 500,
+        headers: {
+          ...corsHeaders,
+          "Content-Type": "application/json",
+        },
+      }
+    );
   }
-})
+});
