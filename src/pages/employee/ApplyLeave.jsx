@@ -1,0 +1,264 @@
+import { useState, useEffect } from 'react'
+import { CalendarOff, Info, Upload } from 'lucide-react'
+import { supabase } from '../../lib/supabase'
+import { useAuth } from '../../context/AuthContext'
+import { Button } from '../../components/ui/Button'
+import { Select, Textarea, Input } from '../../components/ui/Input'
+import { LEAVE_TYPES, calculateCalendarDays, formatDate } from '../../lib/utils'
+import toast from 'react-hot-toast'
+
+const EMPTY_FORM = {
+  leave_type: '',
+  start_date: '',
+  end_date: '',
+  reason: '',
+  attachment: null,
+}
+
+export default function ApplyLeave() {
+  const { employee } = useAuth()
+  const [form, setForm] = useState(EMPTY_FORM)
+  const [errors, setErrors] = useState({})
+  const [loading, setLoading] = useState(false)
+  const [balance, setBalance] = useState(null)
+  const [submitted, setSubmitted] = useState(false)
+  const [submittedData, setSubmittedData] = useState(null)
+
+  useEffect(() => {
+    if (!employee) return
+    const fetchBalance = async () => {
+      const { data: leaves } = await supabase
+        .from('leave_requests')
+        .select('*')
+        .eq('employee_phone', employee.phone)
+
+      const currentMonthStr = new Date().toISOString().slice(0, 7)
+      const approvedDaysThisMonth = (leaves || [])
+        .filter(r => r.status === 'Approved' && (r.start_date?.startsWith(currentMonthStr) || r.applied_at?.startsWith(currentMonthStr)))
+        .reduce((sum, r) => sum + (r.total_days || 0), 0)
+
+      const pendingDays = (leaves || [])
+        .filter(r => r.status === 'Pending')
+        .reduce((sum, r) => sum + (r.total_days || 0), 0)
+
+      const localAlloc = localStorage.getItem('leave_alloc_' + employee.phone)
+      const alloc = employee.leave_allocation ?? (localAlloc ? parseFloat(localAlloc) : 1)
+
+      setBalance({
+        allocation: alloc,
+        used: approvedDaysThisMonth,
+        remaining: Math.max(0, alloc - approvedDaysThisMonth),
+        pending: pendingDays
+      })
+    }
+    fetchBalance()
+  }, [employee, submitted])
+
+  const totalDays = calculateCalendarDays(form.start_date, form.end_date)
+  const overBalance = balance && totalDays > (balance.remaining || 0) && form.leave_type !== 'Loss of Pay'
+
+  const validate = () => {
+    const errs = {}
+    if (!form.leave_type) errs.leave_type = 'Select a leave type'
+    if (!form.start_date) errs.start_date = 'Select start date'
+    if (!form.end_date) errs.end_date = 'Select end date'
+    if (form.start_date && form.end_date && form.start_date > form.end_date) errs.end_date = 'End date must be after start date'
+    if (!form.reason.trim()) errs.reason = 'Please provide a reason'
+    return errs
+  }
+
+  const handleSubmit = async (e) => {
+    e.preventDefault()
+    const errs = validate()
+    setErrors(errs)
+    if (Object.keys(errs).length > 0) return
+
+    setLoading(true)
+    try {
+      let attachment_url = null
+
+      // Upload attachment if provided
+      if (form.attachment) {
+        const fileExt = form.attachment.name.split('.').pop()
+        const fileName = `${employee.phone}/${Date.now()}.${fileExt}`
+        const { error: uploadErr } = await supabase.storage
+          .from('leave-attachments')
+          .upload(fileName, form.attachment)
+        if (!uploadErr) {
+          const { data: urlData } = supabase.storage.from('leave-attachments').getPublicUrl(fileName)
+          attachment_url = urlData?.publicUrl || null
+        }
+      }
+
+      const { data: insertedReq, error } = await supabase
+        .from('leave_requests')
+        .insert({
+          employee_phone: employee.phone,
+          leave_type: form.leave_type,
+          start_date: form.start_date,
+          end_date: form.end_date,
+          total_days: totalDays,
+          reason: form.reason,
+          attachment_url,
+          status: 'Pending',
+          applied_at: new Date().toISOString(),
+        })
+        .select()
+        .single()
+
+      if (error) throw error
+
+      // Insert notification for self
+      await supabase.from('notifications').insert({
+        employee_phone: employee.phone,
+        title: 'Leave Request Submitted',
+        message: `Your ${form.leave_type} request has been submitted and is pending HR approval.`,
+        type: 'leave',
+        related_id: insertedReq.id
+      })
+
+      // Insert notifications for all HR/Admin roles
+      const { data: hrUsers } = await supabase
+        .from('profiles')
+        .select('id')
+        .in('role', ['admin', 'hr'])
+
+      if (hrUsers && hrUsers.length > 0) {
+        const hrNotifications = hrUsers.map(hr => ({
+          user_id: hr.id,
+          title: 'New Leave Request',
+          message: `${employee.full_name} submitted a ${form.leave_type} request.`,
+          type: 'leave',
+          related_id: insertedReq.id
+        }))
+        await supabase.from('notifications').insert(hrNotifications)
+      }
+
+      // Audit log
+      await supabase.from('audit_logs').insert({
+        action: 'CREATED',
+        entity_type: 'leave_request',
+        entity_id: insertedReq.id,
+        employee_phone: employee.phone,
+        details: { leave_type: form.leave_type, start_date: form.start_date, end_date: form.end_date },
+      })
+
+      toast.success('Leave request submitted successfully!')
+      setSubmittedData({ ...form, totalDays })
+      setSubmitted(true)
+      setForm(EMPTY_FORM)
+    } catch (err) {
+      toast.error(err.message || 'Failed to submit leave request')
+    } finally {
+      setLoading(false)
+    }
+  }
+
+  return (
+    <div className="max-w-xl">
+      {submitted && submittedData && (
+        <div className="mb-5 bg-emerald-50 border border-emerald-200 rounded-xl p-4">
+          <p className="text-sm font-semibold text-emerald-800 mb-2">✅ Leave Request Submitted!</p>
+          <div className="text-sm text-emerald-700 space-y-1">
+            <div className="flex justify-between"><span>Leave Type:</span><span className="font-medium">{submittedData.leave_type}</span></div>
+            <div className="flex justify-between"><span>Start Date:</span><span className="font-medium">{formatDate(submittedData.start_date)}</span></div>
+            <div className="flex justify-between"><span>End Date:</span><span className="font-medium">{formatDate(submittedData.end_date)}</span></div>
+            <div className="flex justify-between"><span>Total Days:</span><span className="font-medium">{submittedData.totalDays} day{submittedData.totalDays !== 1 ? 's' : ''}</span></div>
+            <div className="flex justify-between"><span>Status:</span><span className="font-medium">Pending HR Approval</span></div>
+          </div>
+          <button onClick={() => setSubmitted(false)} className="mt-3 text-xs text-emerald-600 hover:underline">Apply for another leave →</button>
+        </div>
+      )}
+
+      {!submitted && (
+        <div className="bg-white rounded-xl border border-slate-100 p-6 space-y-5">
+          {/* Header */}
+          <div className="flex items-center gap-3 pb-4 border-b border-slate-100">
+            <div className="p-2 bg-blue-50 rounded-lg text-blue-600"><CalendarOff size={20} /></div>
+            <div>
+              <h2 className="font-bold text-slate-800">Apply for Leave</h2>
+              <p className="text-xs text-slate-400">Specify dates and select leave type</p>
+            </div>
+          </div>
+
+          <form onSubmit={handleSubmit} className="space-y-4">
+            <Select
+              label="Leave Type *"
+              value={form.leave_type}
+              onChange={e => setForm({ ...form, leave_type: e.target.value })}
+              error={errors.leave_type}
+            >
+              <option value="">Select leave type</option>
+              {LEAVE_TYPES.map(t => <option key={t}>{t}</option>)}
+            </Select>
+
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+              <Input
+                label="Start Date *"
+                type="date"
+                value={form.start_date}
+                onChange={e => setForm({ ...form, start_date: e.target.value })}
+                error={errors.start_date}
+              />
+              <Input
+                label="End Date *"
+                type="date"
+                value={form.end_date}
+                onChange={e => setForm({ ...form, end_date: e.target.value })}
+                error={errors.end_date}
+              />
+            </div>
+
+            {form.start_date && form.end_date && !errors.end_date && (
+              <div className="bg-slate-50 rounded-lg p-3 flex justify-between items-center text-sm">
+                <span className="text-slate-500">Duration:</span>
+                <span className="font-semibold text-slate-800">{totalDays} day{totalDays !== 1 ? 's' : ''}</span>
+              </div>
+            )}
+
+            {overBalance && (
+              <div className="bg-amber-50 border border-amber-200 rounded-lg p-3 flex items-start gap-2.5">
+                <Info size={16} className="text-amber-600 mt-0.5 shrink-0" />
+                <p className="text-xs text-amber-700 leading-normal">
+                  You are applying for {totalDays} days, which exceeds your remaining balance of {balance?.remaining ?? 0} days. If approved, the excess days may count as Loss of Pay.
+                </p>
+              </div>
+            )}
+
+            <Textarea
+              label="Reason for Leave *"
+              value={form.reason}
+              onChange={e => setForm({ ...form, reason: e.target.value })}
+              placeholder="Provide a detailed reason for leave…"
+              rows={4}
+              error={errors.reason}
+            />
+
+            <div>
+              <label className="block text-sm font-medium text-slate-600 mb-1.5">Supporting Document</label>
+              <div className="border border-dashed border-slate-200 rounded-lg p-6 min-h-[120px] flex flex-col items-center justify-center hover:bg-slate-50/50 transition-colors">
+                <Upload size={24} className="text-slate-400 mb-2" />
+                <label className="text-sm font-semibold text-blue-600 hover:underline cursor-pointer min-h-[44px] flex items-center">
+                  Choose File
+                  <input
+                    type="file"
+                    className="hidden"
+                    onChange={e => setForm({ ...form, attachment: e.target.files[0] })}
+                  />
+                </label>
+                <span className="text-[10px] text-slate-400 mt-0.5">PDF, JPG, PNG (Max 5MB)</span>
+                {form.attachment && (
+                  <p className="text-xs font-semibold text-slate-600 mt-2">Selected: {form.attachment.name}</p>
+                )}
+              </div>
+            </div>
+
+            <Button type="submit" loading={loading} className="w-full">
+              Submit Leave Request
+            </Button>
+          </form>
+        </div>
+      )}
+    </div>
+  )
+}
