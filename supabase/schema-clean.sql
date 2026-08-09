@@ -534,17 +534,72 @@ ALTER TABLE public.push_subscriptions ENABLE ROW LEVEL SECURITY;
 DROP POLICY IF EXISTS "Allow all access to push subscriptions" ON public.push_subscriptions;
 CREATE POLICY "Allow all access to push subscriptions" ON public.push_subscriptions FOR ALL USING (true) WITH CHECK (true);
 
--- TRIGGER: Webhook to send-push Edge Function
-CREATE OR REPLACE TRIGGER trg_on_notification_inserted
+-- TRIGGER: Push Notification via pg_net
+-- (See supabase/migrations/20260809_push_trigger_pg_net.sql for the full version)
+-- Ensure pg_net is enabled:
+CREATE EXTENSION IF NOT EXISTS pg_net SCHEMA extensions;
+
+CREATE OR REPLACE FUNCTION public.trigger_send_push_notification()
+RETURNS TRIGGER
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path = extensions, public
+AS $$
+DECLARE
+  v_service_key TEXT;
+  v_payload     JSONB;
+  v_headers     JSONB;
+  v_request_id  BIGINT;
+  v_edge_fn_url CONSTANT TEXT := 'https://qabtydijzsvfejeyrakc.supabase.co/functions/v1/send-push';
+BEGIN
+  IF NEW.user_id IS NULL THEN
+    RETURN NEW;
+  END IF;
+
+  -- Read service_role key from Supabase-managed PostgreSQL setting.
+  -- Never hardcoded. Safe to commit.
+  v_service_key := current_setting('app.settings.service_role_key', true);
+
+  v_payload := jsonb_build_object(
+    'type',   'INSERT',
+    'table',  'notifications',
+    'record', jsonb_build_object(
+      'id',             NEW.id,
+      'user_id',        NEW.user_id,
+      'employee_phone', NEW.employee_phone,
+      'title',          NEW.title,
+      'message',        NEW.message,
+      'type',           NEW.type,
+      'is_read',        NEW.is_read,
+      'related_id',     NEW.related_id,
+      'created_at',     NEW.created_at
+    )
+  );
+
+  v_headers := jsonb_build_object(
+    'Content-Type',  'application/json',
+    'Authorization', 'Bearer ' || coalesce(v_service_key, '')
+  );
+
+  -- CORRECT: net.http_post(), body as JSONB
+  SELECT net.http_post(
+    url     := v_edge_fn_url,
+    headers := v_headers,
+    body    := v_payload
+  ) INTO v_request_id;
+
+  RETURN NEW;
+EXCEPTION WHEN OTHERS THEN
+  RAISE LOG '[PUSH TRIGGER] ERROR: notification_id=%, %', NEW.id, SQLERRM;
+  RETURN NEW;
+END;
+$$;
+
+DROP TRIGGER IF EXISTS trg_on_notification_inserted ON public.notifications;
+CREATE TRIGGER trg_on_notification_inserted
   AFTER INSERT ON public.notifications
   FOR EACH ROW
-  EXECUTE FUNCTION supabase_functions.http_request(
-    'https://qabtydijzsvfejeyrakc.supabase.co/functions/v1/send-push',
-    'POST',
-    '{"Content-Type":"application/json"}',
-    '{}',
-    '1000'
-  );
+  EXECUTE FUNCTION public.trigger_send_push_notification();
 
 -- RLS: AUDIT LOGS
 DROP POLICY IF EXISTS "HR can view audit logs" ON public.audit_logs;

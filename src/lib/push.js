@@ -128,8 +128,11 @@ export async function registerPushNotifications(
       return;
     }
 
-    // 6. Save subscription in Supabase using upsert
-    // onConflict: endpoint ensures no duplicate rows per device
+    // 6. Save subscription in Supabase using upsert.
+    // onConflict: "endpoint" deduplicates per browser device.
+    // The endpoint column was added in migration 20260809_push_trigger_pg_net.sql.
+    // ignoreDuplicates: false ensures existing rows are UPDATED when the
+    // browser renews its push subscription (keys may change).
     const { error } = await supabase
       .from("push_subscriptions")
       .upsert(
@@ -141,6 +144,7 @@ export async function registerPushNotifications(
         },
         {
           onConflict: "endpoint",
+          ignoreDuplicates: false,
         }
       );
 

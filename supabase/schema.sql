@@ -583,19 +583,86 @@ CREATE POLICY "Allow all access to push subscriptions" ON public.push_subscripti
   FOR ALL USING (true) WITH CHECK (true);
 
 -- ============================================================
--- TRIGGER: Webhook to send-push Edge Function
+-- TRIGGER: Push Notification via pg_net
 -- ============================================================
--- This trigger calls the send-push Edge Function when a new notification is inserted.
-CREATE OR REPLACE TRIGGER trg_on_notification_inserted
+-- NOTE: This trigger is defined in the dedicated migration file:
+--   supabase/migrations/20260809_push_trigger_pg_net.sql
+--
+-- Run that file in the Supabase SQL Editor to create/update
+-- the trigger. It uses pg_net (extensions.http_post) directly
+-- because the supabase_functions schema is not available on
+-- this project. Do NOT use supabase_functions.http_request() here.
+--
+-- The trigger function is: public.trigger_send_push_notification()
+-- The trigger name is:     trg_on_notification_inserted
+-- It fires:                AFTER INSERT ON public.notifications
+--                          (only when NEW.user_id IS NOT NULL)
+-- ============================================================
+-- Ensure pg_net is enabled before this trigger will work:
+CREATE EXTENSION IF NOT EXISTS pg_net SCHEMA extensions;
+
+CREATE OR REPLACE FUNCTION public.trigger_send_push_notification()
+RETURNS TRIGGER
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path = extensions, public
+AS $$
+DECLARE
+  v_service_key TEXT;
+  v_payload     JSONB;
+  v_headers     JSONB;
+  v_request_id  BIGINT;
+  v_edge_fn_url CONSTANT TEXT :=
+    'https://qabtydijzsvfejeyrakc.supabase.co/functions/v1/send-push';
+BEGIN
+  IF NEW.user_id IS NULL THEN
+    RETURN NEW;
+  END IF;
+
+  -- Read service_role key from Supabase-managed PostgreSQL setting.
+  -- Never hardcoded. Safe to commit.
+  v_service_key := current_setting('app.settings.service_role_key', true);
+
+  v_payload := jsonb_build_object(
+    'type',   'INSERT',
+    'table',  'notifications',
+    'record', jsonb_build_object(
+      'id',             NEW.id,
+      'user_id',        NEW.user_id,
+      'employee_phone', NEW.employee_phone,
+      'title',          NEW.title,
+      'message',        NEW.message,
+      'type',           NEW.type,
+      'is_read',        NEW.is_read,
+      'related_id',     NEW.related_id,
+      'created_at',     NEW.created_at
+    )
+  );
+
+  v_headers := jsonb_build_object(
+    'Content-Type',  'application/json',
+    'Authorization', 'Bearer ' || coalesce(v_service_key, '')
+  );
+
+  -- CORRECT: net.http_post(), body as JSONB (not TEXT)
+  SELECT net.http_post(
+    url     := v_edge_fn_url,
+    headers := v_headers,
+    body    := v_payload
+  ) INTO v_request_id;
+
+  RETURN NEW;
+EXCEPTION WHEN OTHERS THEN
+  RAISE LOG '[PUSH TRIGGER] ERROR: notification_id=%, %', NEW.id, SQLERRM;
+  RETURN NEW;
+END;
+$$;
+
+DROP TRIGGER IF EXISTS trg_on_notification_inserted ON public.notifications;
+CREATE TRIGGER trg_on_notification_inserted
   AFTER INSERT ON public.notifications
   FOR EACH ROW
-  EXECUTE FUNCTION supabase_functions.http_request(
-    'https://qabtydijzsvfejeyrakc.supabase.co/functions/v1/send-push',
-    'POST',
-    '{"Content-Type":"application/json"}',
-    '{}',
-    '1000'
-  );
+  EXECUTE FUNCTION public.trigger_send_push_notification();
 
 -- ============================================================
 -- RLS: AUDIT LOGS
