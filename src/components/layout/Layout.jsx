@@ -7,6 +7,7 @@ import { registerPushNotifications } from '../../lib/push'
 
 const HR_TITLES = {
   '/hr/dashboard':     'Dashboard',
+  '/hr/attendance':    'Attendance Management',
   '/hr/employees':     'Employee Management',
   '/hr/leave':         'Leave Requests',
   '/hr/permissions':   'Permission Requests',

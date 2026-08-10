@@ -17,6 +17,7 @@ import EmployeeProfile from './pages/hr/EmployeeProfile'
 import LeaveRequests from './pages/hr/LeaveRequests'
 import Reports from './pages/hr/Reports'
 import HRNotifications from './pages/hr/Notifications'
+import Attendance from './pages/hr/Attendance'
 
 // Employee Pages
 import EmployeeDashboard from './pages/employee/Dashboard'
@@ -83,6 +84,7 @@ function AppRoutes() {
         <Route path="permissions" element={<LeaveRequests />} />
         <Route path="reports" element={<Reports />} />
         <Route path="notifications" element={<HRNotifications />} />
+        <Route path="attendance" element={<Attendance />} />
       </Route>
 
       {/* Employee Routes */}

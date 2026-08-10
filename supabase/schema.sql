@@ -61,6 +61,7 @@ CREATE TABLE IF NOT EXISTS public.leave_requests (
   approved_by       UUID REFERENCES auth.users(id) ON DELETE SET NULL,
   approved_at       TIMESTAMPTZ,
   applied_at        TIMESTAMPTZ DEFAULT NOW(),
+  employee_phone    TEXT,
   created_at        TIMESTAMPTZ DEFAULT NOW(),
   updated_at        TIMESTAMPTZ DEFAULT NOW()
 );

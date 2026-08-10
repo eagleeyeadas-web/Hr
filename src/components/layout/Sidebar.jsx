@@ -9,6 +9,7 @@ import { cn } from '../../lib/utils'
 
 const HR_NAV = [
   { to: '/hr/dashboard',    label: 'Dashboard',           icon: LayoutDashboard },
+  { to: '/hr/attendance',   label: 'Attendance',          icon: ClipboardList },
   { to: '/hr/employees',    label: 'Employees',           icon: Users },
   { to: '/hr/leave',        label: 'Leave Requests',      icon: CalendarOff },
   { to: '/hr/permissions',  label: 'Permission Requests', icon: Clock },
