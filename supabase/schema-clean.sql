@@ -37,6 +37,7 @@ CREATE TABLE public.employees (
   leave_allocation  INTEGER NOT NULL DEFAULT 12,
   status            TEXT NOT NULL CHECK (status IN ('active', 'inactive')) DEFAULT 'active',
   profile_photo_url TEXT,
+  company           TEXT,
   created_at        TIMESTAMPTZ DEFAULT NOW(),
   updated_at        TIMESTAMPTZ DEFAULT NOW()
 );

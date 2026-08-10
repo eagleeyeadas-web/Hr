@@ -3,13 +3,13 @@ import { useNavigate, Link } from 'react-router-dom'
 import { Building2, User, Phone } from 'lucide-react'
 import { useAuth } from '../../context/AuthContext'
 import { Button } from '../../components/ui/Button'
-import { Input } from '../../components/ui/Input'
+import { Input, Select } from '../../components/ui/Input'
 import toast from 'react-hot-toast'
 
 export default function SignupPage() {
   const { signUpEmployee } = useAuth()
   const navigate = useNavigate()
-  const [form, setForm] = useState({ name: '', phone: '' })
+  const [form, setForm] = useState({ name: '', phone: '', company: '' })
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState('')
 
@@ -22,9 +22,14 @@ export default function SignupPage() {
       return
     }
 
+    if (!form.company) {
+      setError('Please select a company.')
+      return
+    }
+
     setLoading(true)
     try {
-      await signUpEmployee(form.name, form.phone)
+      await signUpEmployee(form.name, form.phone, form.company)
       toast.success('Registration successful!')
       navigate('/employee/dashboard')
     } catch (err) {
@@ -77,6 +82,21 @@ export default function SignupPage() {
                 onChange={(e) => setForm({ ...form, phone: e.target.value })}
                 className="bg-white/10 border-white/20 text-white placeholder:text-slate-400 pl-10"
               />
+            </div>
+
+            {/* Company */}
+            <div className="relative">
+              <Building2 size={16} className="absolute left-3 top-9 text-slate-400" />
+              <Select
+                label="Company *"
+                value={form.company}
+                onChange={(e) => setForm({ ...form, company: e.target.value })}
+                className="bg-white/10 border-white/20 text-white pl-10 [&>option]:bg-slate-900 [&>option]:text-white"
+              >
+                <option value="" disabled>Select Company</option>
+                <option value="Aram">Aram</option>
+                <option value="Eagle Eye">Eagle Eye</option>
+              </Select>
             </div>
 
             {/* Error */}
