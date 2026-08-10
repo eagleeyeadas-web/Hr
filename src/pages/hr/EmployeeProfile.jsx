@@ -82,6 +82,15 @@ export default function EmployeeProfile() {
       .eq('employee_phone', employeePhone)
       .order('credit_month', { ascending: false })
 
+    // Ensure permission credits ledger is seeded
+    await supabase.rpc('ensure_permission_credits', { p_phone: employeePhone })
+
+    // Fetch permission credits ledger
+    const { data: permCredits } = await supabase
+      .from('permission_credits')
+      .select('*')
+      .eq('employee_phone', employeePhone)
+
     // Fetch work logs
     const { data: wl } = await supabase
       .from('work_logs')
@@ -132,6 +141,10 @@ export default function EmployeeProfile() {
       earned_credits_history: earnedCredits || []
     })
 
+    // Calculate permission ledger stats
+    const totalPermissionCredits = (permCredits || [])
+      .reduce((sum, row) => sum + (row.monthly_credit_hours || 2), 0)
+
     // Permission history
     const { data: ph } = await supabase
       .from('permission_requests')
@@ -148,12 +161,17 @@ export default function EmployeeProfile() {
     const pendingPermCount = permHistoryData.filter(r => r.status === 'Pending').length
     const rejectedPermCount = permHistoryData.filter(r => r.status === 'Rejected').length
 
+    const approvedPermHours = approvedPermMinutes / 60.0
+    const permissionAvailable = Math.max(0, totalPermissionCredits - approvedPermHours)
+
     setPermSummary({
       total: permHistoryData.length,
       approved: permHistoryData.filter(r => r.status === 'Approved').length,
       rejected: rejectedPermCount,
       pending: pendingPermCount,
-      approved_hours: (approvedPermMinutes / 60).toFixed(1)
+      approved_hours: approvedPermHours.toFixed(1),
+      total_credits: totalPermissionCredits.toFixed(1),
+      available: permissionAvailable.toFixed(1)
     })
 
     setLoading(false)
@@ -362,11 +380,11 @@ export default function EmployeeProfile() {
             <ClockIcon /> Permission Summary
           </h2>
           <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
-            <SummaryCard label="Total" value={permSummary?.total ?? 0} color="blue" />
-            <SummaryCard label="Approved" value={permSummary?.approved ?? 0} color="green" />
-            <SummaryCard label="Rejected" value={permSummary?.rejected ?? 0} color="red" />
-            <SummaryCard label="Pending" value={permSummary?.pending ?? 0} color="amber" />
-            <SummaryCard label="Approved Hours" value={`${permSummary?.approved_hours ?? 0} hrs`} color="slate" />
+            <SummaryCard label="Permission Balance" value={`${permSummary?.available ?? 0} hrs`} color="purple" />
+            <SummaryCard label="Total Credited" value={`${permSummary?.total_credits ?? 0} hrs`} color="blue" />
+            <SummaryCard label="Approved Used" value={`${permSummary?.approved_hours ?? 0} hrs`} color="green" />
+            <SummaryCard label="Current Month Credit" value="+2.0 hrs" color="green" />
+            <SummaryCard label="Pending Requests" value={permSummary?.pending ?? 0} color="amber" />
           </div>
         </div>
       </div>

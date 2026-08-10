@@ -20,6 +20,9 @@ export default function EmployeeDashboard() {
     const fetchData = async () => {
       setLoading(true)
 
+      // Ensure permission credits ledger is seeded for current month
+      await supabase.rpc('ensure_permission_credits', { p_phone: employee.phone })
+
       // Fetch leaves for this employee
       const { data: leaves } = await supabase
         .from('leave_requests')
@@ -40,6 +43,12 @@ export default function EmployeeDashboard() {
         .eq('employee_phone', employee.phone)
         .order('credit_month', { ascending: false })
 
+      // Fetch permission credits ledger
+      const { data: permCredits } = await supabase
+        .from('permission_credits')
+        .select('credit_month, monthly_credit_hours')
+        .eq('employee_phone', employee.phone)
+
       // Fetch current month's work logs
       const currentMonthStr = new Date().toISOString().slice(0, 7)
       const { data: currentMonthLogs } = await supabase
@@ -53,11 +62,9 @@ export default function EmployeeDashboard() {
       const thisMonthLogs = currentMonthLogs || []
 
       // ---- COMP-OFF BALANCE ----
-      // Earned = sum of all approved compoff_requests.credited_days
       const compOffEarned = (compoffs || [])
         .filter(r => r.status === 'Approved')
         .reduce((sum, r) => sum + (r.credited_days || 1), 0)
-      // Used = sum of approved leave_requests with leave_type='Comp-Off'
       const compOffUsed = leaveHistoryData
         .filter(r => r.status === 'Approved' && r.leave_type === 'Comp-Off')
         .reduce((sum, r) => sum + (r.total_days || 0), 0)
@@ -73,10 +80,8 @@ export default function EmployeeDashboard() {
       const baseAllocation = latestEmp?.leave_allocation ?? 0
 
       // ---- EARNED LEAVE BALANCE ----
-      // Total credits from all months (ledger carries forward)
       const totalEarnedCredits = (earnedCredits || [])
         .reduce((sum, row) => sum + (row.earned_credits || 0), 0)
-      // Used = sum of approved leave_requests with leave_type='Earned Leave'
       const earnedLeaveUsed = leaveHistoryData
         .filter(r => r.status === 'Approved' && r.leave_type === 'Earned Leave')
         .reduce((sum, r) => sum + (r.total_days || 0), 0)
@@ -119,10 +124,17 @@ export default function EmployeeDashboard() {
 
       const pendingPermCount = permHistoryData.filter(r => r.status === 'Pending').length
 
+      // Calculate permission ledger stats
+      const totalPermissionCredits = (permCredits || [])
+        .reduce((sum, row) => sum + (row.monthly_credit_hours || 2), 0)
+      const approvedPermHours = approvedPermMinutes / 60.0
+      const permissionAvailable = Math.max(0, totalPermissionCredits - approvedPermHours)
+
       setPermSummary({
         total: permHistoryData.length,
         pending: pendingPermCount,
-        approved_hours: (approvedPermMinutes / 60).toFixed(1)
+        approved_hours: approvedPermHours.toFixed(1),
+        available: permissionAvailable.toFixed(1)
       })
       setRecentPerms(permHistoryData.slice(0, 4))
 
@@ -151,33 +163,27 @@ export default function EmployeeDashboard() {
         )}
       </div>
 
-      {/* Leave Balance — NEW SYSTEM (no fixed allocation) */}
+      {/* Leave & Permission Balances — 3 Balances Consolidated */}
       <div>
-        <h2 className="text-sm font-semibold text-slate-400 mb-3 uppercase tracking-wide">Leave Balance</h2>
-        <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+        <h2 className="text-sm font-semibold text-slate-400 mb-3 uppercase tracking-wide">Leave & Permission Balances</h2>
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
           <StatCard
-            label="Earned Leave"
+            label="Earned Leave Balance"
             value={`${leaveSummary?.earned_leave_available ?? 0} days`}
             icon={BookOpen}
             color="blue"
           />
           <StatCard
-            label="Comp-Off Available"
+            label="Comp-Off Balance"
             value={`${leaveSummary?.compoff_available ?? 0} days`}
             icon={Calendar}
             color="amber"
           />
           <StatCard
-            label="Total Available"
-            value={`${leaveSummary?.total_available ?? 0} days`}
-            icon={AlertCircle}
+            label="Permission Balance"
+            value={`${permSummary?.available ?? 0} hours`}
+            icon={Clock}
             color="purple"
-          />
-          <StatCard
-            label="Pending Requests"
-            value={leaveSummary?.pending ?? 0}
-            icon={CheckCircle}
-            color="slate"
           />
         </div>
       </div>
@@ -188,7 +194,7 @@ export default function EmployeeDashboard() {
           <TrendingUp size={16} className="text-green-500" />
           <h2 className="text-sm font-semibold text-slate-700">This Month's Progress — {monthLabel}</h2>
         </div>
-        <div className="grid grid-cols-2 sm:grid-cols-3 gap-4">
+        <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
           <div className="bg-slate-50 rounded-xl p-4">
             <p className="text-2xl font-bold text-slate-800">{leaveSummary?.worked_days_this_month ?? 0}</p>
             <p className="text-xs text-slate-500 mt-1">Worked Days</p>
@@ -196,6 +202,10 @@ export default function EmployeeDashboard() {
           <div className="bg-green-50 rounded-xl p-4">
             <p className="text-2xl font-bold text-green-700">+{leaveSummary?.earned_this_month ?? 0}</p>
             <p className="text-xs text-slate-500 mt-1">Earned This Month</p>
+          </div>
+          <div className="bg-purple-50 rounded-xl p-4">
+            <p className="text-2xl font-bold text-purple-700">+2 hrs</p>
+            <p className="text-xs text-slate-500 mt-1">Permission Credit</p>
           </div>
           <div className="bg-slate-50 rounded-xl p-4 col-span-2 sm:col-span-1">
             <p className="text-sm font-semibold text-slate-600">Next credit at 15 days</p>

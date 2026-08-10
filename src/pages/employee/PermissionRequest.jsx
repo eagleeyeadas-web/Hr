@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import { Clock } from 'lucide-react'
 import { supabase } from '../../lib/supabase'
 import { useAuth } from '../../context/AuthContext'
@@ -16,6 +16,38 @@ export default function PermissionRequest() {
   const [loading, setLoading] = useState(false)
   const [submitted, setSubmitted] = useState(false)
   const [submittedData, setSubmittedData] = useState(null)
+  const [balance, setBalance] = useState(null)
+
+  useEffect(() => {
+    if (!employee) return
+    const fetchBalance = async () => {
+      // Ensure credits are seeded
+      await supabase.rpc('ensure_permission_credits', { p_phone: employee.phone })
+
+      // Fetch credits ledger
+      const { data: credits } = await supabase
+        .from('permission_credits')
+        .select('monthly_credit_hours')
+        .eq('employee_phone', employee.phone)
+
+      // Fetch approved permissions
+      const { data: perms } = await supabase
+        .from('permission_requests')
+        .select('duration_minutes')
+        .eq('employee_phone', employee.phone)
+        .eq('status', 'Approved')
+
+      const totalCredits = (credits || []).reduce((sum, row) => sum + (row.monthly_credit_hours || 2), 0)
+      const totalUsedMinutes = (perms || []).reduce((sum, row) => sum + (row.duration_minutes || 0), 0)
+      const totalUsedHours = totalUsedMinutes / 60.0
+      
+      setBalance({
+        available_hours: Math.max(0, totalCredits - totalUsedHours),
+        available_minutes: Math.max(0, (totalCredits * 60) - totalUsedMinutes)
+      })
+    }
+    fetchBalance()
+  }, [employee, submitted])
 
   const duration = calculateDurationMinutes(form.start_time, form.end_time)
   const validDuration = form.start_time && form.end_time && form.start_time < form.end_time
@@ -37,6 +69,15 @@ export default function PermissionRequest() {
     if (Object.keys(errs).length > 0) return
 
     setLoading(true)
+    
+    // Validate balance
+    if (balance && duration > balance.available_minutes) {
+      const requestedHours = duration / 60.0
+      toast.error(`You do not have enough permission balance. Requested: ${requestedHours.toFixed(1)} hrs, Available: ${balance.available_hours.toFixed(1)} hrs.`)
+      setLoading(false)
+      return
+    }
+
     try {
       const { data: insertedReq, error } = await supabase
         .from('permission_requests')
@@ -155,6 +196,13 @@ export default function PermissionRequest() {
             </div>
           </div>
           <form onSubmit={handleSubmit} className="p-6 space-y-4">
+            {balance && (
+              <div className="bg-blue-50 border border-blue-100 rounded-lg px-3 py-2 text-xs flex justify-between items-center">
+                <span className="text-slate-500">Available Balance:</span>
+                <span className="font-bold text-blue-700">{balance.available_hours.toFixed(1)} hours</span>
+              </div>
+            )}
+
             <Input
               label="Permission Date *"
               type="date"
