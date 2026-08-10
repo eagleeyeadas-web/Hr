@@ -37,13 +37,22 @@ export default function PermissionRequest() {
         .eq('employee_phone', employee.phone)
         .eq('status', 'Approved')
 
+      // Fetch latest employee allocation details
+      const { data: latestEmp } = await supabase
+        .from('employees')
+        .select('permission_allocation')
+        .eq('phone', employee.phone)
+        .single()
+      
+      const basePermAllocation = latestEmp?.permission_allocation ?? 0
+
       const totalCredits = (credits || []).reduce((sum, row) => sum + (row.monthly_credit_hours || 2), 0)
       const totalUsedMinutes = (perms || []).reduce((sum, row) => sum + (row.duration_minutes || 0), 0)
       const totalUsedHours = totalUsedMinutes / 60.0
       
       setBalance({
-        available_hours: Math.max(0, totalCredits - totalUsedHours),
-        available_minutes: Math.max(0, (totalCredits * 60) - totalUsedMinutes)
+        available_hours: Math.max(0, basePermAllocation + totalCredits - totalUsedHours),
+        available_minutes: Math.max(0, (basePermAllocation * 60) + (totalCredits * 60) - totalUsedMinutes)
       })
     }
     fetchBalance()

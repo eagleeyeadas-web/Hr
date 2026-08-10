@@ -73,11 +73,12 @@ export default function EmployeeDashboard() {
       // Fetch latest employee allocation details
       const { data: latestEmp } = await supabase
         .from('employees')
-        .select('leave_allocation')
+        .select('leave_allocation, permission_allocation')
         .eq('phone', employee.phone)
         .single()
       
       const baseAllocation = latestEmp?.leave_allocation ?? 0
+      const basePermAllocation = latestEmp?.permission_allocation ?? 0
 
       // ---- EARNED LEAVE BALANCE ----
       const totalEarnedCredits = (earnedCredits || [])
@@ -128,7 +129,7 @@ export default function EmployeeDashboard() {
       const totalPermissionCredits = (permCredits || [])
         .reduce((sum, row) => sum + (row.monthly_credit_hours || 2), 0)
       const approvedPermHours = approvedPermMinutes / 60.0
-      const permissionAvailable = Math.max(0, totalPermissionCredits - approvedPermHours)
+      const permissionAvailable = Math.max(0, basePermAllocation + totalPermissionCredits - approvedPermHours)
 
       setPermSummary({
         total: permHistoryData.length,

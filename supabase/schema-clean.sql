@@ -35,6 +35,7 @@ CREATE TABLE public.employees (
   joining_date      DATE NOT NULL DEFAULT NOW()::DATE,
   date_of_birth     DATE,
   leave_allocation  INTEGER NOT NULL DEFAULT 12,
+  permission_allocation NUMERIC NOT NULL DEFAULT 0,
   status            TEXT NOT NULL CHECK (status IN ('active', 'inactive')) DEFAULT 'active',
   profile_photo_url TEXT,
   company           TEXT,

@@ -49,6 +49,9 @@ export default function EmployeeProfile() {
   const [showAllocModal, setShowAllocModal] = useState(false)
   const [allocInput, setAllocInput] = useState('0')
   const [allocSaving, setAllocSaving] = useState(false)
+  const [showPermAllocModal, setShowPermAllocModal] = useState(false)
+  const [permAllocInput, setPermAllocInput] = useState('0')
+  const [permAllocSaving, setPermAllocSaving] = useState(false)
 
   const fetchAll = async () => {
     setLoading(true)
@@ -124,6 +127,9 @@ export default function EmployeeProfile() {
     // Update allocInput with current base allocation value
     setAllocInput(String(baseAllocation))
 
+    const basePermAllocation = emp.permission_allocation ?? 0
+    setPermAllocInput(String(basePermAllocation))
+
     // Current month stats
     const currentMonthStr = new Date().toISOString().slice(0, 7)
     const workedLogsThisMonth = (wl || []).filter(w => w.work_date?.startsWith(currentMonthStr)).length
@@ -162,7 +168,7 @@ export default function EmployeeProfile() {
     const rejectedPermCount = permHistoryData.filter(r => r.status === 'Rejected').length
 
     const approvedPermHours = approvedPermMinutes / 60.0
-    const permissionAvailable = Math.max(0, totalPermissionCredits - approvedPermHours)
+    const permissionAvailable = Math.max(0, basePermAllocation + totalPermissionCredits - approvedPermHours)
 
     setPermSummary({
       total: permHistoryData.length,
@@ -171,6 +177,7 @@ export default function EmployeeProfile() {
       pending: pendingPermCount,
       approved_hours: approvedPermHours.toFixed(1),
       total_credits: totalPermissionCredits.toFixed(1),
+      base_permission_allocation: basePermAllocation,
       available: permissionAvailable.toFixed(1)
     })
 
@@ -178,6 +185,30 @@ export default function EmployeeProfile() {
   }
 
   useEffect(() => { fetchAll() }, [employeePhone])
+
+  const handleUpdatePermAllocation = async () => {
+    const val = parseFloat(permAllocInput)
+    if (isNaN(val) || val < 0) {
+      toast.error('Please enter a valid permission hour credit number.')
+      return
+    }
+    setPermAllocSaving(true)
+    try {
+      const { error } = await supabase
+        .from('employees')
+        .update({ permission_allocation: val })
+        .eq('phone', employeePhone)
+      
+      if (error) throw error
+      toast.success(`Allocated permission hours updated to ${val} hours!`)
+      setShowPermAllocModal(false)
+      fetchAll()
+    } catch (err) {
+      toast.error(err.message || 'Failed to update permission allocation')
+    } finally {
+      setPermAllocSaving(false)
+    }
+  }
 
   const handleUpdateAllocation = async () => {
     const val = parseFloat(allocInput)
@@ -376,10 +407,19 @@ export default function EmployeeProfile() {
 
         {/* Permission Summary */}
         <div className="bg-white rounded-xl border border-slate-100 p-5">
-          <h2 className="font-semibold text-sm text-slate-800 mb-4 flex items-center gap-2">
-            <ClockIcon /> Permission Summary
-          </h2>
+          <div className="flex items-center justify-between mb-4">
+            <h2 className="font-semibold text-sm text-slate-800 flex items-center gap-2">
+              <ClockIcon /> Permission Summary
+            </h2>
+            <button
+              onClick={() => setShowPermAllocModal(true)}
+              className="text-xs font-semibold text-blue-600 hover:text-blue-700 bg-blue-50 hover:bg-blue-100 px-2.5 py-1 rounded-md transition-colors"
+            >
+              Adjust Allocation
+            </button>
+          </div>
           <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
+            <SummaryCard label="Base Allocation" value={`${permSummary?.base_permission_allocation ?? 0} hrs`} color="slate" />
             <SummaryCard label="Permission Balance" value={`${permSummary?.available ?? 0} hrs`} color="purple" />
             <SummaryCard label="Total Credited" value={`${permSummary?.total_credits ?? 0} hrs`} color="blue" />
             <SummaryCard label="Approved Used" value={`${permSummary?.approved_hours ?? 0} hrs`} color="green" />
@@ -746,6 +786,35 @@ export default function EmployeeProfile() {
           <div className="flex justify-end gap-2 pt-2">
             <Button variant="secondary" size="sm" onClick={() => setShowAllocModal(false)}>Cancel</Button>
             <Button size="sm" loading={allocSaving} onClick={handleUpdateAllocation}>Save Allocation</Button>
+          </div>
+        </div>
+      </Modal>
+
+      {/* Edit Permission Allocation Modal */}
+      <Modal
+        isOpen={showPermAllocModal}
+        onClose={() => setShowPermAllocModal(false)}
+        title="Adjust Allocated Permission Hours"
+        size="sm"
+      >
+        <div className="space-y-4">
+          <p className="text-xs text-slate-500">
+            Enter the base/one-off permission hours allocation for <span className="font-semibold text-slate-700">{employee?.full_name}</span>. This value is added directly to their Permission Balance.
+          </p>
+          <div>
+            <label className="block text-xs font-semibold text-slate-600 mb-1">Base Permission Allocation (Hours)</label>
+            <input
+              type="number"
+              step="0.5"
+              min="0"
+              value={permAllocInput}
+              onChange={e => setPermAllocInput(e.target.value)}
+              className="w-full border border-slate-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+            />
+          </div>
+          <div className="flex justify-end gap-2 pt-2">
+            <Button variant="secondary" size="sm" onClick={() => setShowPermAllocModal(false)}>Cancel</Button>
+            <Button size="sm" loading={permAllocSaving} onClick={handleUpdatePermAllocation}>Save Allocation</Button>
           </div>
         </div>
       </Modal>
