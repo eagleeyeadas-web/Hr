@@ -8,10 +8,14 @@ const inputBase = cn(
   'disabled:bg-slate-50 disabled:text-slate-400 disabled:cursor-not-allowed'
 )
 
-export function Input({ label, error, className, ...props }) {
+export function Input({ label, error, className, labelClassName, ...props }) {
   return (
     <div className="flex flex-col gap-1">
-      {label && <label className="text-sm font-medium text-slate-700">{label}</label>}
+      {label && (
+        <label className={cn('text-sm font-medium text-slate-700', labelClassName)}>
+          {label}
+        </label>
+      )}
       <input
         className={cn(
           inputBase,
@@ -25,10 +29,14 @@ export function Input({ label, error, className, ...props }) {
   )
 }
 
-export function Select({ label, error, className, children, ...props }) {
+export function Select({ label, error, className, labelClassName, children, ...props }) {
   return (
     <div className="flex flex-col gap-1">
-      {label && <label className="text-sm font-medium text-slate-700">{label}</label>}
+      {label && (
+        <label className={cn('text-sm font-medium text-slate-700', labelClassName)}>
+          {label}
+        </label>
+      )}
       <select
         className={cn(
           inputBase,
@@ -44,10 +52,14 @@ export function Select({ label, error, className, children, ...props }) {
   )
 }
 
-export function Textarea({ label, error, className, ...props }) {
+export function Textarea({ label, error, className, labelClassName, ...props }) {
   return (
     <div className="flex flex-col gap-1">
-      {label && <label className="text-sm font-medium text-slate-700">{label}</label>}
+      {label && (
+        <label className={cn('text-sm font-medium text-slate-700', labelClassName)}>
+          {label}
+        </label>
+      )}
       <textarea
         className={cn(
           'w-full rounded-lg border border-slate-200 bg-white px-3 py-2.5 text-base sm:text-sm text-slate-900',

@@ -63,6 +63,7 @@ export default function SignupPage() {
               <User size={16} className="absolute left-3 top-9 text-slate-400" />
               <Input
                 label="Full Name *"
+                labelClassName="text-slate-300"
                 type="text"
                 placeholder="e.g. Arun Kumar"
                 value={form.name}
@@ -76,6 +77,7 @@ export default function SignupPage() {
               <Phone size={16} className="absolute left-3 top-9 text-slate-400" />
               <Input
                 label="Phone Number *"
+                labelClassName="text-slate-300"
                 type="tel"
                 placeholder="e.g. 9876543210"
                 value={form.phone}
@@ -89,6 +91,7 @@ export default function SignupPage() {
               <Building2 size={16} className="absolute left-3 top-9 text-slate-400" />
               <Select
                 label="Company *"
+                labelClassName="text-slate-300"
                 value={form.company}
                 onChange={(e) => setForm({ ...form, company: e.target.value })}
                 className="bg-white/10 border-white/20 text-white pl-10 [&>option]:bg-slate-900 [&>option]:text-white"
