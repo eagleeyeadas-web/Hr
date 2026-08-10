@@ -36,8 +36,7 @@ export default function Attendance() {
       // 1. Fetch active employees
       const { data: emps, error: empsErr } = await supabase
         .from('employees')
-        .select('id, full_name, phone, company, employee_type')
-        .eq('status', 'active')
+        .select('full_name, phone, company, employee_type')
         .order('full_name')
 
       if (empsErr) throw empsErr
