@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react'
 import { Link } from 'react-router-dom'
-import { CalendarOff, Clock, CheckCircle, AlertCircle, History, Calendar, BookOpen } from 'lucide-react'
+import { CalendarOff, Clock, CheckCircle, AlertCircle, History, Calendar, BookOpen, TrendingUp } from 'lucide-react'
 import { supabase } from '../../lib/supabase'
 import { useAuth } from '../../context/AuthContext'
 import { StatCard, PageLoader } from '../../components/ui/Spinner'
@@ -33,56 +33,70 @@ export default function EmployeeDashboard() {
         .select('*')
         .eq('employee_phone', employee.phone)
 
-      // Fetch earned leave credits (persistent ledger)
+      // Fetch earned leave credits ledger (persistent, carries forward)
       const { data: earnedCredits } = await supabase
         .from('earned_leave_credits')
-        .select('earned_credits')
+        .select('credit_month, eligible_days, earned_credits')
         .eq('employee_phone', employee.phone)
+        .order('credit_month', { ascending: false })
+
+      // Fetch current month's work logs
+      const currentMonthStr = new Date().toISOString().slice(0, 7)
+      const { data: currentMonthLogs } = await supabase
+        .from('work_logs')
+        .select('work_date')
+        .eq('employee_phone', employee.phone)
+        .gte('work_date', `${currentMonthStr}-01`)
+        .lte('work_date', `${currentMonthStr}-31`)
 
       const leaveHistoryData = leaves || []
+      const thisMonthLogs = currentMonthLogs || []
 
-      // Calculate current month approved regular leave days (exclude 'Comp-Off' and 'Earned Leave')
-      const currentMonthStr = new Date().toISOString().slice(0, 7)
-      const approvedRegularLeaveDaysThisMonth = leaveHistoryData
-        .filter(r => r.status === 'Approved' && r.leave_type !== 'Comp-Off' && r.leave_type !== 'Earned Leave' && (r.start_date?.startsWith(currentMonthStr) || r.applied_at?.startsWith(currentMonthStr)))
-        .reduce((sum, r) => sum + (r.total_days || 0), 0)
-
-      // Comp-Off balance
+      // ---- COMP-OFF BALANCE ----
+      // Earned = sum of all approved compoff_requests.credited_days
       const compOffEarned = (compoffs || [])
         .filter(r => r.status === 'Approved')
         .reduce((sum, r) => sum + (r.credited_days || 1), 0)
+      // Used = sum of approved leave_requests with leave_type='Comp-Off'
       const compOffUsed = leaveHistoryData
         .filter(r => r.status === 'Approved' && r.leave_type === 'Comp-Off')
         .reduce((sum, r) => sum + (r.total_days || 0), 0)
       const compOffAvailable = Math.max(0, compOffEarned - compOffUsed)
 
-      // Earned leave balance (from ledger)
-      const totalEarnedCredits = (earnedCredits || []).reduce((sum, row) => sum + (row.earned_credits || 0), 0)
+      // ---- EARNED LEAVE BALANCE ----
+      // Total credits from all months (ledger carries forward)
+      const totalEarnedCredits = (earnedCredits || [])
+        .reduce((sum, row) => sum + (row.earned_credits || 0), 0)
+      // Used = sum of approved leave_requests with leave_type='Earned Leave'
       const earnedLeaveUsed = leaveHistoryData
         .filter(r => r.status === 'Approved' && r.leave_type === 'Earned Leave')
         .reduce((sum, r) => sum + (r.total_days || 0), 0)
       const earnedLeaveAvailable = Math.max(0, totalEarnedCredits - earnedLeaveUsed)
 
+      // ---- TOTAL AVAILABLE ----
+      const totalAvailableLeave = earnedLeaveAvailable + compOffAvailable
+
+      // ---- PENDING COUNT ----
       const pendingLeaveCount = leaveHistoryData.filter(r => r.status === 'Pending').length
 
-      const localAlloc = localStorage.getItem('leave_alloc_' + employee.phone)
-      const alloc = employee.leave_allocation ?? (localAlloc ? parseFloat(localAlloc) : 1)
-
-      const regularRemaining = Math.max(0, alloc - approvedRegularLeaveDaysThisMonth)
-      const totalAvailableLeave = regularRemaining + compOffAvailable + earnedLeaveAvailable
+      // ---- CURRENT MONTH PROGRESS ----
+      const workedDaysThisMonth = thisMonthLogs.length
+      const earnedThisMonth = Math.floor(workedDaysThisMonth / 15)
+      const thisMonthLedger = (earnedCredits || []).find(r => r.credit_month === currentMonthStr)
 
       setLeaveSummary({
-        allocation: alloc,
-        used: approvedRegularLeaveDaysThisMonth,
-        compoff_available: compOffAvailable,
         earned_leave_available: earnedLeaveAvailable,
+        compoff_available: compOffAvailable,
         total_available: totalAvailableLeave,
-        pending: pendingLeaveCount
+        pending: pendingLeaveCount,
+        worked_days_this_month: workedDaysThisMonth,
+        earned_this_month: thisMonthLedger?.earned_credits ?? earnedThisMonth,
+        current_month: currentMonthStr,
       })
       setRecentLeave(leaveHistoryData.slice(0, 4))
 
       // Fetch permissions for this employee
-      const { data: perms, error: permsErr } = await supabase
+      const { data: perms } = await supabase
         .from('permission_requests')
         .select('*')
         .eq('employee_phone', employee.phone)
@@ -90,7 +104,6 @@ export default function EmployeeDashboard() {
 
       const permHistoryData = perms || []
 
-      // Calculate permission statistics client-side
       const approvedPermMinutes = permHistoryData
         .filter(r => r.status === 'Approved')
         .reduce((sum, r) => sum + (r.duration_minutes || 0), 0)
@@ -112,6 +125,9 @@ export default function EmployeeDashboard() {
   if (loading || !employee) return <PageLoader />
 
   const firstName = employee.full_name?.split(' ')[0] || 'there'
+  const monthLabel = leaveSummary?.current_month
+    ? new Date(leaveSummary.current_month + '-01').toLocaleString('default', { month: 'long', year: 'numeric' })
+    : ''
 
   return (
     <div className="space-y-6">
@@ -119,17 +135,71 @@ export default function EmployeeDashboard() {
       <div className="bg-gradient-to-r from-blue-600 to-blue-700 rounded-2xl p-4 sm:p-6 text-white">
         <p className="text-blue-200 text-sm mb-1">Good day,</p>
         <h1 className="text-xl sm:text-2xl font-bold">Welcome back, {firstName}! 👋</h1>
+        {employee.employee_type && (
+          <span className={`inline-block mt-2 text-xs font-semibold px-2.5 py-0.5 rounded-full ${
+            employee.employee_type === 'Senior' ? 'bg-blue-500/30 text-blue-100' : 'bg-purple-500/30 text-purple-100'
+          }`}>{employee.employee_type} Employee</span>
+        )}
       </div>
 
-      {/* Leave Summary Cards */}
+      {/* Leave Balance — NEW SYSTEM (no fixed allocation) */}
       <div>
         <h2 className="text-sm font-semibold text-slate-400 mb-3 uppercase tracking-wide">Leave Balance</h2>
-        <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-5 gap-4">
-          <StatCard label="Monthly Allocation" value={`${leaveSummary?.allocation ?? 0} days/mo`} icon={CalendarOff} color="blue" />
-          <StatCard label="Regular Used (This Month)" value={`${leaveSummary?.used ?? 0} days`} icon={CheckCircle} color="green" />
-          <StatCard label="Earned Leave" value={`${leaveSummary?.earned_leave_available ?? 0} days`} icon={BookOpen} color="blue" />
-          <StatCard label="Comp-Off Available" value={`${leaveSummary?.compoff_available ?? 0} days`} icon={CalendarOff} color="amber" />
-          <StatCard label="Total Available Leave" value={`${leaveSummary?.total_available ?? 0} days`} icon={AlertCircle} color="purple" />
+        <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+          <StatCard
+            label="Earned Leave"
+            value={`${leaveSummary?.earned_leave_available ?? 0} days`}
+            icon={BookOpen}
+            color="blue"
+          />
+          <StatCard
+            label="Comp-Off Available"
+            value={`${leaveSummary?.compoff_available ?? 0} days`}
+            icon={Calendar}
+            color="amber"
+          />
+          <StatCard
+            label="Total Available"
+            value={`${leaveSummary?.total_available ?? 0} days`}
+            icon={AlertCircle}
+            color="purple"
+          />
+          <StatCard
+            label="Pending Requests"
+            value={leaveSummary?.pending ?? 0}
+            icon={CheckCircle}
+            color="slate"
+          />
+        </div>
+      </div>
+
+      {/* Current Month Progress */}
+      <div className="bg-white rounded-xl border border-slate-100 p-5">
+        <div className="flex items-center gap-2 mb-4">
+          <TrendingUp size={16} className="text-green-500" />
+          <h2 className="text-sm font-semibold text-slate-700">This Month's Progress — {monthLabel}</h2>
+        </div>
+        <div className="grid grid-cols-2 sm:grid-cols-3 gap-4">
+          <div className="bg-slate-50 rounded-xl p-4">
+            <p className="text-2xl font-bold text-slate-800">{leaveSummary?.worked_days_this_month ?? 0}</p>
+            <p className="text-xs text-slate-500 mt-1">Worked Days</p>
+          </div>
+          <div className="bg-green-50 rounded-xl p-4">
+            <p className="text-2xl font-bold text-green-700">+{leaveSummary?.earned_this_month ?? 0}</p>
+            <p className="text-xs text-slate-500 mt-1">Earned This Month</p>
+          </div>
+          <div className="bg-slate-50 rounded-xl p-4 col-span-2 sm:col-span-1">
+            <p className="text-sm font-semibold text-slate-600">Next credit at 15 days</p>
+            <div className="mt-2 w-full bg-slate-200 rounded-full h-2">
+              <div
+                className="bg-blue-500 h-2 rounded-full transition-all"
+                style={{ width: `${Math.min(100, ((leaveSummary?.worked_days_this_month ?? 0) % 15) / 15 * 100)}%` }}
+              />
+            </div>
+            <p className="text-xs text-slate-400 mt-1">
+              {(leaveSummary?.worked_days_this_month ?? 0) % 15} / 15 days toward next credit
+            </p>
+          </div>
         </div>
       </div>
 
@@ -185,6 +255,7 @@ function QuickAction({ to, icon, label, color }) {
   const colorMap = {
     blue: 'bg-blue-50 text-blue-700 hover:bg-blue-100 border-blue-100',
     purple: 'bg-purple-50 text-purple-700 hover:bg-purple-100 border-purple-100',
+    amber: 'bg-amber-50 text-amber-700 hover:bg-amber-100 border-amber-100',
     slate: 'bg-slate-50 text-slate-700 hover:bg-slate-100 border-slate-100',
   }
   return (

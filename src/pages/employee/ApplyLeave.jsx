@@ -29,28 +29,21 @@ export default function ApplyLeave() {
     const fetchBalance = async () => {
       const { data: leaves } = await supabase
         .from('leave_requests')
-        .select('*')
+        .select('leave_type, status, total_days')
         .eq('employee_phone', employee.phone)
 
       const { data: compoffs } = await supabase
         .from('compoff_requests')
-        .select('*')
+        .select('status, credited_days')
         .eq('employee_phone', employee.phone)
 
-      // Fetch earned leave credits ledger
+      // Earned leave credits ledger (carries forward across months)
       const { data: earnedCredits } = await supabase
         .from('earned_leave_credits')
         .select('earned_credits')
         .eq('employee_phone', employee.phone)
 
-      const currentMonthStr = new Date().toISOString().slice(0, 7)
-
-      // Regular leaves (excluding Comp-Off and Earned Leave)
-      const approvedRegularDaysThisMonth = (leaves || [])
-        .filter(r => r.status === 'Approved' && r.leave_type !== 'Comp-Off' && r.leave_type !== 'Earned Leave' && (r.start_date?.startsWith(currentMonthStr) || r.applied_at?.startsWith(currentMonthStr)))
-        .reduce((sum, r) => sum + (r.total_days || 0), 0)
-
-      // Comp-Off leaves
+      // ---- COMP-OFF BALANCE ----
       const compOffEarned = (compoffs || [])
         .filter(r => r.status === 'Approved')
         .reduce((sum, r) => sum + (r.credited_days || 1), 0)
@@ -59,39 +52,29 @@ export default function ApplyLeave() {
         .reduce((sum, r) => sum + (r.total_days || 0), 0)
       const compoffRemaining = Math.max(0, compOffEarned - compOffUsed)
 
-      // Earned leave from ledger
+      // ---- EARNED LEAVE BALANCE ----
       const totalEarnedCredits = (earnedCredits || []).reduce((sum, row) => sum + (row.earned_credits || 0), 0)
       const earnedLeaveUsed = (leaves || [])
         .filter(r => r.status === 'Approved' && r.leave_type === 'Earned Leave')
         .reduce((sum, r) => sum + (r.total_days || 0), 0)
       const earnedLeaveRemaining = Math.max(0, totalEarnedCredits - earnedLeaveUsed)
 
-      const pendingDays = (leaves || [])
-        .filter(r => r.status === 'Pending')
-        .reduce((sum, r) => sum + (r.total_days || 0), 0)
-
-      const localAlloc = localStorage.getItem('leave_alloc_' + employee.phone)
-      const alloc = employee.leave_allocation ?? (localAlloc ? parseFloat(localAlloc) : 1)
-
       setBalance({
-        allocation: alloc,
-        used: approvedRegularDaysThisMonth,
-        remaining: Math.max(0, alloc - approvedRegularDaysThisMonth),
         compoff_remaining: compoffRemaining,
         earned_leave_remaining: earnedLeaveRemaining,
-        pending: pendingDays
       })
     }
     fetchBalance()
   }, [employee, submitted])
 
   const totalDays = calculateCalendarDays(form.start_date, form.end_date)
+  // Only validate balance for Comp-Off and Earned Leave (these are the only credit-based types)
   const overBalance = balance && (
     form.leave_type === 'Comp-Off'
       ? totalDays > (balance.compoff_remaining || 0)
       : form.leave_type === 'Earned Leave'
         ? totalDays > (balance.earned_leave_remaining || 0)
-        : form.leave_type !== 'Loss of Pay' && totalDays > (balance.remaining || 0)
+        : false  // Other types (Casual, Sick, Emergency, LOP, Other) have no cap
   )
 
   const validate = () => {
@@ -252,15 +235,14 @@ export default function ApplyLeave() {
               {LEAVE_TYPES.map(t => <option key={t}>{t}</option>)}
             </Select>
 
-            {form.leave_type && balance && (
-              <div className="text-xs font-semibold text-slate-500 mt-1">
-                Available balance for {form.leave_type}:{' '}
-                <span className="text-blue-600 font-bold">
+            {/* Balance indicator — only for credit-based leave types */}
+            {form.leave_type && balance && (form.leave_type === 'Comp-Off' || form.leave_type === 'Earned Leave') && (
+              <div className="bg-blue-50 border border-blue-100 rounded-lg px-3 py-2 text-xs flex justify-between items-center">
+                <span className="text-slate-500">Available {form.leave_type} balance:</span>
+                <span className="font-bold text-blue-700">
                   {form.leave_type === 'Comp-Off'
                     ? balance.compoff_remaining
-                    : form.leave_type === 'Earned Leave'
-                      ? balance.earned_leave_remaining
-                      : balance.remaining} days
+                    : balance.earned_leave_remaining} days
                 </span>
               </div>
             )}
@@ -293,17 +275,16 @@ export default function ApplyLeave() {
               <div className="bg-amber-50 border border-amber-200 rounded-lg p-3 flex items-start gap-2.5">
                 <Info size={16} className="text-amber-600 mt-0.5 shrink-0" />
                 <p className="text-xs text-amber-700 leading-normal">
-                  You are applying for {totalDays} days, which exceeds your remaining balance of{' '}
+                  You are applying for <strong>{totalDays} day{totalDays !== 1 ? 's' : ''}</strong>, but your{' '}
+                  {form.leave_type === 'Comp-Off' ? 'Comp-Off' : 'Earned Leave'} balance is only{' '}
+                  <strong>
+                    {form.leave_type === 'Comp-Off'
+                      ? (balance?.compoff_remaining ?? 0)
+                      : (balance?.earned_leave_remaining ?? 0)} days
+                  </strong>.{' '}
                   {form.leave_type === 'Comp-Off'
-                    ? (balance?.compoff_remaining ?? 0)
-                    : form.leave_type === 'Earned Leave'
-                      ? (balance?.earned_leave_remaining ?? 0)
-                      : (balance?.remaining ?? 0)} days.{' '}
-                  {form.leave_type === 'Comp-Off'
-                    ? 'You must earn more Comp-Off credits to cover this duration.'
-                    : form.leave_type === 'Earned Leave'
-                      ? 'You must earn more working-day credits to cover this duration.'
-                      : 'If approved, the excess days may count as Loss of Pay.'}
+                    ? 'You need more approved Comp-Off credits.':
+                    'You need more worked-day earned-leave credits.'}
                 </p>
               </div>
             )}

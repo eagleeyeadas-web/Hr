@@ -44,9 +44,6 @@ export default function EmployeeProfile() {
   const [showRejectForm, setShowRejectForm] = useState(false)
   const [rejectionReason, setRejectionReason] = useState('')
   const [actionLoading, setActionLoading] = useState(false)
-  const [showAllocModal, setShowAllocModal] = useState(false)
-  const [allocInput, setAllocInput] = useState('12')
-  const [allocSaving, setAllocSaving] = useState(false)
   const [workLogDate, setWorkLogDate] = useState('')
   const [workLogLoading, setWorkLogLoading] = useState(false)
 
@@ -59,10 +56,6 @@ export default function EmployeeProfile() {
       return
     }
     setEmployee(emp)
-
-    const localAlloc = localStorage.getItem('leave_alloc_' + employeePhone)
-    const customAlloc = emp.leave_allocation ?? (localAlloc ? parseFloat(localAlloc) : 1)
-    setAllocInput(String(customAlloc))
 
     // Leave history
     const { data: lh } = await supabase
@@ -94,13 +87,7 @@ export default function EmployeeProfile() {
       .order('work_date', { ascending: false })
     setWorkLogs(wl || [])
 
-    // Calculate current month approved regular leave days (exclude 'Comp-Off' and 'Earned Leave')
-    const currentMonthStr = new Date().toISOString().slice(0, 7)
-    const approvedRegularDaysThisMonth = leaveHistoryData
-      .filter(r => r.status === 'Approved' && r.leave_type !== 'Comp-Off' && r.leave_type !== 'Earned Leave' && (r.start_date?.startsWith(currentMonthStr) || r.applied_at?.startsWith(currentMonthStr)))
-      .reduce((sum, r) => sum + (r.total_days || 0), 0)
-
-    // Calculate Comp-Off balance (earned credits - used days)
+    // ---- COMP-OFF BALANCE ----
     const compOffEarned = (compoffs || [])
       .filter(r => r.status === 'Approved')
       .reduce((sum, r) => sum + (r.credited_days || 1), 0)
@@ -109,7 +96,7 @@ export default function EmployeeProfile() {
       .reduce((sum, r) => sum + (r.total_days || 0), 0)
     const compOffAvailable = Math.max(0, compOffEarned - compOffUsed)
 
-    // Earned leave balance from ledger
+    // ---- EARNED LEAVE BALANCE ----
     const totalEarnedCredits = (earnedCredits || []).reduce((sum, row) => sum + (row.earned_credits || 0), 0)
     const earnedLeaveUsed = leaveHistoryData
       .filter(r => r.status === 'Approved' && r.leave_type === 'Earned Leave')
@@ -119,19 +106,21 @@ export default function EmployeeProfile() {
     const pendingLeaveCount = leaveHistoryData.filter(r => r.status === 'Pending').length
     const rejectedLeaveCount = leaveHistoryData.filter(r => r.status === 'Rejected').length
 
-    const regularRemaining = Math.max(0, customAlloc - approvedRegularDaysThisMonth)
-    const totalAvailable = regularRemaining + compOffAvailable + earnedLeaveAvailable
+    const totalAvailable = earnedLeaveAvailable + compOffAvailable
+
+    // Current month stats
+    const currentMonthStr = new Date().toISOString().slice(0, 7)
+    const workedLogsThisMonth = (wl || []).filter(w => w.work_date?.startsWith(currentMonthStr)).length
+    const thisMonthLedger = (earnedCredits || []).find(r => r.credit_month === currentMonthStr)
 
     setLeaveSummary({
-      allocation: customAlloc,
-      used: approvedRegularDaysThisMonth,
-      remaining: regularRemaining,
-      compoff_available: compOffAvailable,
       earned_leave_available: earnedLeaveAvailable,
+      compoff_available: compOffAvailable,
       total_available: totalAvailable,
       pending: pendingLeaveCount,
       rejected: rejectedLeaveCount,
-      work_logs_this_month: (wl || []).filter(w => w.work_date?.startsWith(currentMonthStr)).length,
+      work_logs_this_month: workedLogsThisMonth,
+      earned_this_month: thisMonthLedger?.earned_credits ?? 0,
       earned_credits_history: earnedCredits || []
     })
 
@@ -160,31 +149,6 @@ export default function EmployeeProfile() {
     })
 
     setLoading(false)
-  }
-
-  const handleUpdateAllocation = async () => {
-    const val = parseFloat(allocInput)
-    if (isNaN(val) || val < 0) {
-      toast.error('Please enter a valid monthly leave allocation number.')
-      return
-    }
-    setAllocSaving(true)
-    localStorage.setItem('leave_alloc_' + employeePhone, val)
-    try {
-      const { error } = await supabase
-        .from('employees')
-        .update({ leave_allocation: val })
-        .eq('phone', employeePhone)
-      
-      if (error && error.code !== 'PGRST204') throw error
-      toast.success(`Monthly leave allocation updated to ${val} days/month!`)
-      setShowAllocModal(false)
-      fetchAll()
-    } catch (err) {
-      toast.error(err.message || 'Failed to update allocation')
-    } finally {
-      setAllocSaving(false)
-    }
   }
 
   useEffect(() => { fetchAll() }, [employeePhone])
@@ -343,23 +307,14 @@ export default function EmployeeProfile() {
             <h2 className="font-semibold text-sm text-slate-800 flex items-center gap-2">
               <CalendarIcon /> Leave Summary
             </h2>
-            <button
-              onClick={() => setShowAllocModal(true)}
-              className="text-xs font-semibold text-blue-600 hover:text-blue-700 bg-blue-50 hover:bg-blue-100 px-2.5 py-1 rounded-md transition-colors"
-            >
-              Edit Allocation
-            </button>
           </div>
           <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
-            <SummaryCard label="Regular Allocation" value={`${leaveSummary?.allocation ?? 0} days`} color="blue" />
-            <SummaryCard label="Regular Used (This Month)" value={`${leaveSummary?.used ?? 0} days`} color="green" />
-            <SummaryCard label="Regular Remaining" value={`${leaveSummary?.remaining ?? 0} days`} color="slate" />
-            <SummaryCard label="Earned Leave" value={`${leaveSummary?.earned_leave_available ?? 0} days`} color="blue" />
-            <SummaryCard label="Comp-Off Available" value={`${leaveSummary?.compoff_available ?? 0} days`} color="amber" />
-            <SummaryCard label="Total Available Leave" value={`${leaveSummary?.total_available ?? 0} days`} color="blue" />
-            <SummaryCard label="Work Logs (This Month)" value={`${leaveSummary?.work_logs_this_month ?? 0} days`} color="green" />
-            <SummaryCard label="Pending" value={leaveSummary?.pending ?? 0} color="slate" />
-            <SummaryCard label="Rejected" value={leaveSummary?.rejected ?? 0} color="red" />
+            <SummaryCard label="Earned Leave Balance" value={`${leaveSummary?.earned_leave_available ?? 0} days`} color="blue" />
+            <SummaryCard label="Comp-Off Balance" value={`${leaveSummary?.compoff_available ?? 0} days`} color="amber" />
+            <SummaryCard label="Total Available" value={`${leaveSummary?.total_available ?? 0} days`} color="blue" />
+            <SummaryCard label="Worked This Month" value={`${leaveSummary?.work_logs_this_month ?? 0} days`} color="green" />
+            <SummaryCard label="Earned This Month" value={`+${leaveSummary?.earned_this_month ?? 0} days`} color="green" />
+            <SummaryCard label="Pending Requests" value={leaveSummary?.pending ?? 0} color="slate" />
           </div>
         </div>
 
@@ -710,34 +665,6 @@ export default function EmployeeProfile() {
         )}
       </Modal>
 
-      {/* Edit Allocation Modal */}
-      <Modal
-        isOpen={showAllocModal}
-        onClose={() => setShowAllocModal(false)}
-        title="Customise Monthly Leave Allocation"
-        size="sm"
-      >
-        <div className="space-y-4">
-          <p className="text-xs text-slate-500">
-            Set custom monthly leave allocation (days per month) for <span className="font-semibold text-slate-700">{employee.full_name}</span>.
-          </p>
-          <div>
-            <label className="block text-xs font-semibold text-slate-600 mb-1">Monthly Leave Allocation (Days / Month)</label>
-            <input
-              type="number"
-              step="0.5"
-              min="0"
-              value={allocInput}
-              onChange={e => setAllocInput(e.target.value)}
-              className="w-full border border-slate-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
-            />
-          </div>
-          <div className="flex justify-end gap-2 pt-2">
-            <Button variant="secondary" size="sm" onClick={() => setShowAllocModal(false)}>Cancel</Button>
-            <Button size="sm" loading={allocSaving} onClick={handleUpdateAllocation}>Save Allocation</Button>
-          </div>
-        </div>
-      </Modal>
     </div>
   )
 }
