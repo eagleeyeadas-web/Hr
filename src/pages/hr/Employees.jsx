@@ -13,6 +13,7 @@ const EMPTY_FORM = {
   full_name: '',
   phone: '',
   company: '',
+  employee_type: '',
 }
 
 export default function Employees() {
@@ -49,6 +50,7 @@ export default function Employees() {
     setForm({
       ...emp,
       company: emp.company || '',
+      employee_type: emp.employee_type || '',
     })
     setFormError('')
     setEditEmployee(emp)
@@ -57,10 +59,11 @@ export default function Employees() {
 
   const handleSave = async () => {
     setFormError('')
-    if (!form.full_name || !form.phone || !form.company) {
-      setFormError('Please fill in all required fields (Name, Phone, and Company).')
+    if (!form.full_name || !form.phone || !form.company || !form.employee_type) {
+      setFormError('Please fill in all required fields (Name, Phone, Company, and Employee Type).')
       return
     }
+    const phoneClean = form.phone.trim()
     setSaving(true)
     try {
       if (editEmployee) {
@@ -69,7 +72,8 @@ export default function Employees() {
           .update({
             full_name: form.full_name,
             phone: phoneClean,
-            company: form.company
+            company: form.company,
+            employee_type: form.employee_type
           })
           .eq('phone', editEmployee.phone)
 
@@ -92,7 +96,8 @@ export default function Employees() {
           .insert({
             full_name: form.full_name,
             phone: phoneClean,
-            company: form.company
+            company: form.company,
+            employee_type: form.employee_type
           })
 
         if (error) throw error
@@ -176,7 +181,16 @@ export default function Employees() {
                     {getInitials(emp.full_name)}
                   </div>
                   <div className="flex-1 min-w-0">
-                    <p className="font-semibold text-slate-800 truncate">{emp.full_name}</p>
+                    <div className="flex items-center gap-2">
+                      <p className="font-semibold text-slate-800 truncate">{emp.full_name}</p>
+                      {emp.employee_type && (
+                        <span className={`text-[10px] px-1.5 py-0.5 rounded-full font-semibold ${
+                          emp.employee_type === 'Senior'
+                            ? 'bg-blue-50 text-blue-600'
+                            : 'bg-purple-50 text-purple-600'
+                        }`}>{emp.employee_type}</span>
+                      )}
+                    </div>
                     <p className="text-sm text-slate-500 font-mono mt-0.5">{emp.phone}</p>
                   </div>
                 </div>
@@ -211,6 +225,7 @@ export default function Employees() {
               <tr className="bg-slate-50 border-b border-slate-100">
                 <th className="text-left px-5 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wide">Employee</th>
                 <th className="text-left px-4 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wide">Phone</th>
+                <th className="text-left px-4 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wide">Employee Type</th>
                 <th className="text-right px-5 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wide">Actions</th>
               </tr>
             </thead>
@@ -242,6 +257,17 @@ export default function Employees() {
                         </div>
                       </td>
                       <td className="px-4 py-3.5 text-slate-600 font-mono">{emp.phone}</td>
+                      <td className="px-4 py-3.5">
+                        {emp.employee_type ? (
+                          <span className={`text-xs px-2.5 py-0.5 rounded-full font-semibold ${
+                            emp.employee_type === 'Senior'
+                              ? 'bg-blue-100 text-blue-700'
+                              : 'bg-purple-100 text-purple-700'
+                          }`}>{emp.employee_type}</span>
+                        ) : (
+                          <span className="text-slate-400 text-xs">—</span>
+                        )}
+                      </td>
                       <td className="px-5 py-3.5 text-right" onClick={e => e.stopPropagation()}>
                         <div className="flex items-center justify-end gap-1">
                           <button
@@ -287,6 +313,15 @@ export default function Employees() {
             <option value="" disabled>Select Company</option>
             <option value="Aram">Aram</option>
             <option value="Eagle Eye">Eagle Eye</option>
+          </Select>
+          <Select
+            label="Employee Type *"
+            value={form.employee_type || ''}
+            onChange={e => setForm({ ...form, employee_type: e.target.value })}
+          >
+            <option value="" disabled>Select Employee Type</option>
+            <option value="Senior">Senior</option>
+            <option value="Junior">Junior</option>
           </Select>
         </div>
         {formError && <p className="text-xs text-red-600 mt-3">{formError}</p>}
