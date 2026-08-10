@@ -4,7 +4,7 @@ import { Plus, Search, Edit2, Eye, X } from 'lucide-react'
 import { supabase } from '../../lib/supabase'
 import { getInitials } from '../../lib/utils'
 import { Button } from '../../components/ui/Button'
-import { Input } from '../../components/ui/Input'
+import { Input, Select } from '../../components/ui/Input'
 import { Modal } from '../../components/ui/Modal'
 import { PageLoader, EmptyState, SkeletonRow } from '../../components/ui/Spinner'
 import toast from 'react-hot-toast'
@@ -13,6 +13,7 @@ const EMPTY_FORM = {
   full_name: '',
   phone: '',
   leave_allocation: 1,
+  company: '',
 }
 
 export default function Employees() {
@@ -20,6 +21,7 @@ export default function Employees() {
   const [employees, setEmployees] = useState([])
   const [loading, setLoading] = useState(true)
   const [search, setSearch] = useState('')
+  const [companyFilter, setCompanyFilter] = useState('')
   const [showAddModal, setShowAddModal] = useState(false)
   const [editEmployee, setEditEmployee] = useState(null)
   const [form, setForm] = useState(EMPTY_FORM)
@@ -35,17 +37,20 @@ export default function Employees() {
 
   useEffect(() => { fetchEmployees() }, [fetchEmployees])
 
-  const filtered = employees.filter(e =>
-    !search ||
-    e.full_name?.toLowerCase().includes(search.toLowerCase()) ||
-    e.phone?.toLowerCase().includes(search.toLowerCase())
-  )
+  const filtered = employees.filter(e => {
+    const matchesSearch = !search ||
+      e.full_name?.toLowerCase().includes(search.toLowerCase()) ||
+      e.phone?.toLowerCase().includes(search.toLowerCase())
+    const matchesCompany = !companyFilter || e.company === companyFilter
+    return matchesSearch && matchesCompany
+  })
 
   const openAdd = () => { setForm(EMPTY_FORM); setFormError(''); setShowAddModal(true) }
   const openEdit = (emp) => {
     const localAlloc = localStorage.getItem('leave_alloc_' + emp.phone)
     setForm({
       ...emp,
+      company: emp.company || '',
       leave_allocation: emp.leave_allocation ?? (localAlloc ? parseFloat(localAlloc) : 1)
     })
     setFormError('')
@@ -55,8 +60,8 @@ export default function Employees() {
 
   const handleSave = async () => {
     setFormError('')
-    if (!form.full_name || !form.phone) {
-      setFormError('Please fill in all required fields.')
+    if (!form.full_name || !form.phone || !form.company) {
+      setFormError('Please fill in all required fields (Name, Phone, and Company).')
       return
     }
     const alloc = parseFloat(form.leave_allocation) || 1
@@ -72,7 +77,8 @@ export default function Employees() {
           .update({
             full_name: form.full_name,
             phone: phoneClean,
-            leave_allocation: alloc
+            leave_allocation: alloc,
+            company: form.company
           })
           .eq('phone', editEmployee.phone)
 
@@ -82,7 +88,8 @@ export default function Employees() {
             .from('employees')
             .update({
               full_name: form.full_name,
-              phone: phoneClean
+              phone: phoneClean,
+              company: form.company
             })
             .eq('phone', editEmployee.phone)
           error = fallback.error
@@ -107,7 +114,8 @@ export default function Employees() {
           .insert({
             full_name: form.full_name,
             phone: phoneClean,
-            leave_allocation: alloc
+            leave_allocation: alloc,
+            company: form.company
           })
 
         if (error && error.code === 'PGRST204') {
@@ -116,7 +124,8 @@ export default function Employees() {
             .from('employees')
             .insert({
               full_name: form.full_name,
-              phone: phoneClean
+              phone: phoneClean,
+              company: form.company
             })
           error = fallback.error
         }
@@ -153,6 +162,18 @@ export default function Employees() {
                 <X size={13} />
               </button>
             )}
+          </div>
+          {/* Company Filter */}
+          <div className="w-full sm:w-48">
+            <select
+              value={companyFilter}
+              onChange={e => setCompanyFilter(e.target.value)}
+              className="w-full px-3 py-2.5 min-h-[44px] text-base sm:text-sm border border-slate-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-100 focus:border-blue-400 text-slate-700 bg-white"
+            >
+              <option value="">All Companies</option>
+              <option value="Aram">Aram</option>
+              <option value="Eagle Eye">Eagle Eye</option>
+            </select>
           </div>
           <Button onClick={openAdd} size="md" className="w-full sm:w-auto">
             <Plus size={16} />
@@ -304,6 +325,15 @@ export default function Employees() {
         <div className="space-y-4">
           <Input label="Full Name *" value={form.full_name} onChange={e => setForm({ ...form, full_name: e.target.value })} placeholder="e.g. Arun Kumar" />
           <Input label="Phone Number *" type="tel" value={form.phone || ''} onChange={e => setForm({ ...form, phone: e.target.value })} placeholder="e.g. 9876543210" />
+          <Select
+            label="Company *"
+            value={form.company || ''}
+            onChange={e => setForm({ ...form, company: e.target.value })}
+          >
+            <option value="" disabled>Select Company</option>
+            <option value="Aram">Aram</option>
+            <option value="Eagle Eye">Eagle Eye</option>
+          </Select>
           <Input label="Monthly Leave Allocation (Days / Month) *" type="number" step="0.5" min="0" value={form.leave_allocation} onChange={e => setForm({ ...form, leave_allocation: e.target.value })} placeholder="1" />
         </div>
         {formError && <p className="text-xs text-red-600 mt-3">{formError}</p>}

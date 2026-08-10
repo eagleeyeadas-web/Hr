@@ -22,7 +22,7 @@ export default function LeaveRequestsPage() {
   const [leaveRequests, setLeaveRequests] = useState([])
   const [permRequests, setPermRequests] = useState([])
   const [loading, setLoading] = useState(true)
-  const [filters, setFilters] = useState({ status: '', leaveType: '', month: '', year: '', search: '' })
+  const [filters, setFilters] = useState({ status: '', leaveType: '', month: '', year: '', search: '', company: '' })
   const [selectedReq, setSelectedReq] = useState(null)
   const [selectedType, setSelectedType] = useState(null)
   const [showRejectForm, setShowRejectForm] = useState(false)
@@ -34,7 +34,7 @@ export default function LeaveRequestsPage() {
     // Leave requests
     let lq = supabase
       .from('leave_requests')
-      .select('*, employees(full_name)')
+      .select('*, employees(full_name, company)')
       .order('applied_at', { ascending: false })
     if (filters.status) lq = lq.eq('status', filters.status)
     if (filters.leaveType) lq = lq.eq('leave_type', filters.leaveType)
@@ -49,12 +49,15 @@ export default function LeaveRequestsPage() {
     if (filters.search) filtered = filtered.filter(r =>
       r.employees?.full_name?.toLowerCase().includes(filters.search.toLowerCase())
     )
+    if (filters.company) filtered = filtered.filter(r =>
+      r.employees?.company === filters.company
+    )
     setLeaveRequests(filtered)
 
     // Permission requests
     let pq = supabase
       .from('permission_requests')
-      .select('*, employees(full_name)')
+      .select('*, employees(full_name, company)')
       .order('applied_at', { ascending: false })
     if (filters.status) pq = pq.eq('status', filters.status)
     if (filters.year) pq = pq.gte('applied_at', `${filters.year}-01-01`).lte('applied_at', `${filters.year}-12-31T23:59:59`)
@@ -67,6 +70,9 @@ export default function LeaveRequestsPage() {
     let filteredP = pd || []
     if (filters.search) filteredP = filteredP.filter(r =>
       r.employees?.full_name?.toLowerCase().includes(filters.search.toLowerCase())
+    )
+    if (filters.company) filteredP = filteredP.filter(r =>
+      r.employees?.company === filters.company
     )
     setPermRequests(filteredP)
     setLoading(false)
@@ -148,7 +154,7 @@ export default function LeaveRequestsPage() {
   const visibleLeave = tab === 'permission' ? [] : leaveRequests
   const visiblePerm = tab === 'leave' ? [] : permRequests
 
-  const clearFilters = () => setFilters({ status: '', leaveType: '', month: '', year: '', search: '' })
+  const clearFilters = () => setFilters({ status: '', leaveType: '', month: '', year: '', search: '', company: '' })
 
   return (
     <div className="space-y-5">
@@ -178,26 +184,32 @@ export default function LeaveRequestsPage() {
             />
           </div>
           <div className="flex flex-wrap gap-2 overflow-x-auto">
+          <select value={filters.company} onChange={e => setFilters({...filters, company: e.target.value})}
+            className="py-2.5 px-3 min-h-[44px] sm:min-h-0 sm:py-1.5 text-base sm:text-sm border border-slate-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-100 text-slate-700 bg-white">
+            <option value="">All Companies</option>
+            <option value="Aram">Aram</option>
+            <option value="Eagle Eye">Eagle Eye</option>
+          </select>
           <select value={filters.status} onChange={e => setFilters({...filters, status: e.target.value})}
-            className="py-2.5 px-3 min-h-[44px] sm:min-h-0 sm:py-1.5 text-base sm:text-sm border border-slate-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-100 text-slate-700">
+            className="py-2.5 px-3 min-h-[44px] sm:min-h-0 sm:py-1.5 text-base sm:text-sm border border-slate-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-100 text-slate-700 bg-white">
             <option value="">All Status</option>
             <option>Pending</option><option>Approved</option><option>Rejected</option><option>Cancelled</option>
           </select>
 
           {tab !== 'permission' && (
             <select value={filters.leaveType} onChange={e => setFilters({...filters, leaveType: e.target.value})}
-              className="py-2.5 px-3 min-h-[44px] sm:min-h-0 sm:py-1.5 text-base sm:text-sm border border-slate-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-100 text-slate-700">
+              className="py-2.5 px-3 min-h-[44px] sm:min-h-0 sm:py-1.5 text-base sm:text-sm border border-slate-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-100 text-slate-700 bg-white">
               <option value="">All Leave Types</option>
               {LEAVE_TYPES.map(l => <option key={l}>{l}</option>)}
             </select>
           )}
           <select value={filters.year} onChange={e => setFilters({...filters, year: e.target.value})}
-            className="py-2.5 px-3 min-h-[44px] sm:min-h-0 sm:py-1.5 text-base sm:text-sm border border-slate-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-100 text-slate-700">
+            className="py-2.5 px-3 min-h-[44px] sm:min-h-0 sm:py-1.5 text-base sm:text-sm border border-slate-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-100 text-slate-700 bg-white">
             <option value="">All Years</option>
             {years.map(y => <option key={y}>{y}</option>)}
           </select>
           <select value={filters.month} onChange={e => setFilters({...filters, month: e.target.value})}
-            className="py-2.5 px-3 min-h-[44px] sm:min-h-0 sm:py-1.5 text-base sm:text-sm border border-slate-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-100 text-slate-700">
+            className="py-2.5 px-3 min-h-[44px] sm:min-h-0 sm:py-1.5 text-base sm:text-sm border border-slate-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-100 text-slate-700 bg-white">
             <option value="">All Months</option>
             {months.map((m, i) => <option key={m} value={i+1}>{m}</option>)}
           </select>
