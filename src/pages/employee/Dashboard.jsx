@@ -13,6 +13,7 @@ export default function EmployeeDashboard() {
   const [permSummary, setPermSummary] = useState(null)
   const [recentLeave, setRecentLeave] = useState([])
   const [recentPerms, setRecentPerms] = useState([])
+  const [attendanceDays, setAttendanceDays] = useState([])
   const [loading, setLoading] = useState(true)
 
   useEffect(() => {
@@ -136,6 +137,29 @@ export default function EmployeeDashboard() {
       })
       setRecentPerms(permHistoryData.slice(0, 4))
 
+      // Generate attendance grid for current month
+      const todayVal = new Date()
+      const yearVal = todayVal.getFullYear()
+      const monthIndexVal = todayVal.getMonth()
+      const daysCount = new Date(yearVal, monthIndexVal + 1, 0).getDate()
+      
+      const days = []
+      for (let d = 1; d <= daysCount; d++) {
+        const dateStr = `${yearVal}-${String(monthIndexVal + 1).padStart(2, '0')}-${String(d).padStart(2, '0')}`
+        const isPresent = thisMonthLogs.some(log => log.work_date === dateStr)
+        const isLeave = leaveHistoryData.some(req => {
+          if (req.status !== 'Approved') return false
+          return dateStr >= req.start_date && dateStr <= req.end_date
+        })
+        
+        let status = 'none'
+        if (isPresent) status = 'present'
+        else if (isLeave) status = 'leave'
+        
+        days.push({ dayNum: d, dateStr, status })
+      }
+      setAttendanceDays(days)
+
       setLoading(false)
     }
     fetchData()
@@ -216,6 +240,66 @@ export default function EmployeeDashboard() {
             <p className="text-xs text-slate-400 mt-1">
               {(leaveSummary?.worked_days_this_month ?? 0) % 15} / 15 days toward next credit
             </p>
+          </div>
+        </div>
+      </div>
+
+      {/* Monthly Attendance Tracker Calendar */}
+      <div className="bg-white rounded-xl border border-slate-100 p-5">
+        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 mb-4">
+          <div className="flex items-center gap-2">
+            <Calendar size={16} className="text-blue-500" />
+            <h2 className="text-sm font-semibold text-slate-700">Monthly Attendance Tracker — {monthLabel}</h2>
+          </div>
+          {/* Legend */}
+          <div className="flex flex-wrap items-center gap-3 text-xs">
+            <div className="flex items-center gap-1.5">
+              <span className="w-3 h-3 rounded bg-emerald-500 inline-block animate-pulse" />
+              <span className="text-slate-500 font-medium">Present ({attendanceDays.filter(d => d.status === 'present').length})</span>
+            </div>
+            <div className="flex items-center gap-1.5">
+              <span className="w-3 h-3 rounded bg-rose-500 inline-block" />
+              <span className="text-slate-500 font-medium">On Leave ({attendanceDays.filter(d => d.status === 'leave').length})</span>
+            </div>
+            <div className="flex items-center gap-1.5">
+              <span className="w-3 h-3 rounded bg-slate-200 inline-block" />
+              <span className="text-slate-500 font-medium">No Log / Off ({attendanceDays.filter(d => d.status === 'none').length})</span>
+            </div>
+          </div>
+        </div>
+
+        {/* Calendar Grid */}
+        <div className="max-w-md mx-auto bg-slate-50/50 rounded-xl p-4 border border-slate-100/50">
+          {/* Weekday headers */}
+          <div className="grid grid-cols-7 gap-1 text-center mb-2 text-xs font-bold text-slate-400">
+            {['Su', 'Mo', 'Tu', 'We', 'Th', 'Fr', 'Sa'].map(d => <div key={d} className="py-1">{d}</div>)}
+          </div>
+          
+          {/* Days Grid */}
+          <div className="grid grid-cols-7 gap-1.5 text-center">
+            {/* Blank padding prefix cells */}
+            {Array.from({ length: new Date(new Date().getFullYear(), new Date().getMonth(), 1).getDay() }).map((_, i) => (
+              <div key={`empty-${i}`} className="aspect-square" />
+            ))}
+            
+            {/* Calendar Days */}
+            {attendanceDays.map((item) => {
+              const statusColors = {
+                present: 'bg-emerald-500 text-white border-emerald-500 shadow-sm shadow-emerald-100',
+                leave: 'bg-rose-500 text-white border-rose-500 shadow-sm shadow-rose-100',
+                none: 'bg-white text-slate-400 border-slate-200/60 hover:bg-slate-100/30',
+              }
+
+              return (
+                <div
+                  key={item.dayNum}
+                  title={`${item.dateStr} (${item.status === 'present' ? 'Present' : item.status === 'leave' ? 'On Leave' : 'No Log'})`}
+                  className={`aspect-square flex items-center justify-center rounded-lg border text-xs font-bold select-none transition-all ${statusColors[item.status]}`}
+                >
+                  <span>{item.dayNum}</span>
+                </div>
+              )
+            })}
           </div>
         </div>
       </div>
