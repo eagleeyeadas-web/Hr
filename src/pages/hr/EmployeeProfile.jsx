@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react'
 import { useParams, useNavigate } from 'react-router-dom'
-import { ArrowLeft, Phone, Calendar, CheckCircle, XCircle } from 'lucide-react'
+import { ArrowLeft, Phone, Calendar, CheckCircle, XCircle, Plus, Trash2, BookOpen } from 'lucide-react'
 import { supabase } from '../../lib/supabase'
 import { formatDate, formatTime, formatDuration, getInitials } from '../../lib/utils'
 import { StatusBadge } from '../../components/ui/Badge'
@@ -37,6 +37,7 @@ export default function EmployeeProfile() {
   const [leaveSummary, setLeaveSummary] = useState(null)
   const [permHistory, setPermHistory] = useState([])
   const [permSummary, setPermSummary] = useState(null)
+  const [workLogs, setWorkLogs] = useState([])
   const [activeTab, setActiveTab] = useState('leave')
   const [selectedRequest, setSelectedRequest] = useState(null)
   const [requestType, setRequestType] = useState('leave')
@@ -46,6 +47,8 @@ export default function EmployeeProfile() {
   const [showAllocModal, setShowAllocModal] = useState(false)
   const [allocInput, setAllocInput] = useState('12')
   const [allocSaving, setAllocSaving] = useState(false)
+  const [workLogDate, setWorkLogDate] = useState('')
+  const [workLogLoading, setWorkLogLoading] = useState(false)
 
   const fetchAll = async () => {
     setLoading(true)
@@ -76,37 +79,60 @@ export default function EmployeeProfile() {
       .select('*')
       .eq('employee_phone', employeePhone)
 
-    // Calculate current month approved regular leave days (exclude 'Comp-Off')
+    // Fetch earned leave credits ledger
+    const { data: earnedCredits } = await supabase
+      .from('earned_leave_credits')
+      .select('*')
+      .eq('employee_phone', employeePhone)
+      .order('credit_month', { ascending: false })
+
+    // Fetch work logs
+    const { data: wl } = await supabase
+      .from('work_logs')
+      .select('*')
+      .eq('employee_phone', employeePhone)
+      .order('work_date', { ascending: false })
+    setWorkLogs(wl || [])
+
+    // Calculate current month approved regular leave days (exclude 'Comp-Off' and 'Earned Leave')
     const currentMonthStr = new Date().toISOString().slice(0, 7)
     const approvedRegularDaysThisMonth = leaveHistoryData
-      .filter(r => r.status === 'Approved' && r.leave_type !== 'Comp-Off' && (r.start_date?.startsWith(currentMonthStr) || r.applied_at?.startsWith(currentMonthStr)))
+      .filter(r => r.status === 'Approved' && r.leave_type !== 'Comp-Off' && r.leave_type !== 'Earned Leave' && (r.start_date?.startsWith(currentMonthStr) || r.applied_at?.startsWith(currentMonthStr)))
       .reduce((sum, r) => sum + (r.total_days || 0), 0)
 
     // Calculate Comp-Off balance (earned credits - used days)
     const compOffEarned = (compoffs || [])
       .filter(r => r.status === 'Approved')
       .reduce((sum, r) => sum + (r.credited_days || 1), 0)
-
     const compOffUsed = leaveHistoryData
       .filter(r => r.status === 'Approved' && r.leave_type === 'Comp-Off')
       .reduce((sum, r) => sum + (r.total_days || 0), 0)
-
     const compOffAvailable = Math.max(0, compOffEarned - compOffUsed)
+
+    // Earned leave balance from ledger
+    const totalEarnedCredits = (earnedCredits || []).reduce((sum, row) => sum + (row.earned_credits || 0), 0)
+    const earnedLeaveUsed = leaveHistoryData
+      .filter(r => r.status === 'Approved' && r.leave_type === 'Earned Leave')
+      .reduce((sum, r) => sum + (r.total_days || 0), 0)
+    const earnedLeaveAvailable = Math.max(0, totalEarnedCredits - earnedLeaveUsed)
 
     const pendingLeaveCount = leaveHistoryData.filter(r => r.status === 'Pending').length
     const rejectedLeaveCount = leaveHistoryData.filter(r => r.status === 'Rejected').length
 
     const regularRemaining = Math.max(0, customAlloc - approvedRegularDaysThisMonth)
-    const totalAvailable = regularRemaining + compOffAvailable
+    const totalAvailable = regularRemaining + compOffAvailable + earnedLeaveAvailable
 
     setLeaveSummary({
       allocation: customAlloc,
       used: approvedRegularDaysThisMonth,
       remaining: regularRemaining,
       compoff_available: compOffAvailable,
+      earned_leave_available: earnedLeaveAvailable,
       total_available: totalAvailable,
       pending: pendingLeaveCount,
-      rejected: rejectedLeaveCount
+      rejected: rejectedLeaveCount,
+      work_logs_this_month: (wl || []).filter(w => w.work_date?.startsWith(currentMonthStr)).length,
+      earned_credits_history: earnedCredits || []
     })
 
     // Permission history
@@ -162,6 +188,43 @@ export default function EmployeeProfile() {
   }
 
   useEffect(() => { fetchAll() }, [employeePhone])
+
+  const handleAddWorkLog = async () => {
+    if (!workLogDate) { toast.error('Please select a date.'); return }
+    setWorkLogLoading(true)
+    try {
+      const { error } = await supabase.from('work_logs').insert({
+        employee_phone: employeePhone,
+        work_date: workLogDate,
+        created_by: user.id
+      })
+      if (error) {
+        if (error.code === '23505') throw new Error('Work log already exists for this date.')
+        throw error
+      }
+      toast.success(`Work log added for ${formatDate(workLogDate)}`)
+      setWorkLogDate('')
+      fetchAll()
+    } catch (err) {
+      toast.error(err.message)
+    } finally {
+      setWorkLogLoading(false)
+    }
+  }
+
+  const handleDeleteWorkLog = async (logId) => {
+    setWorkLogLoading(true)
+    try {
+      const { error } = await supabase.from('work_logs').delete().eq('id', logId)
+      if (error) throw error
+      toast.success('Work log removed')
+      fetchAll()
+    } catch (err) {
+      toast.error(err.message)
+    } finally {
+      setWorkLogLoading(false)
+    }
+  }
 
   const handleApprove = async () => {
     setActionLoading(true)
@@ -256,8 +319,16 @@ export default function EmployeeProfile() {
             </div>
             <div className="flex-1">
               <h1 className="text-xl font-bold text-slate-900">{employee.full_name}</h1>
-              <div className="flex flex-wrap gap-4 mt-3 text-sm text-slate-500">
-                {employee.phone && <span className="flex items-center gap-1.5"><Phone size={14} /> {employee.phone}</span>}
+              <div className="flex flex-wrap gap-3 mt-2 items-center">
+                {employee.phone && <span className="flex items-center gap-1.5 text-sm text-slate-500"><Phone size={14} /> {employee.phone}</span>}
+                {employee.company && <span className="text-xs px-2 py-0.5 bg-slate-100 text-slate-600 rounded-full font-medium">{employee.company}</span>}
+                {employee.employee_type && (
+                  <span className={`text-xs px-2.5 py-0.5 rounded-full font-semibold ${
+                    employee.employee_type === 'Senior'
+                      ? 'bg-blue-100 text-blue-700'
+                      : 'bg-purple-100 text-purple-700'
+                  }`}>{employee.employee_type}</span>
+                )}
               </div>
             </div>
           </div>
@@ -283,8 +354,10 @@ export default function EmployeeProfile() {
             <SummaryCard label="Regular Allocation" value={`${leaveSummary?.allocation ?? 0} days`} color="blue" />
             <SummaryCard label="Regular Used (This Month)" value={`${leaveSummary?.used ?? 0} days`} color="green" />
             <SummaryCard label="Regular Remaining" value={`${leaveSummary?.remaining ?? 0} days`} color="slate" />
+            <SummaryCard label="Earned Leave" value={`${leaveSummary?.earned_leave_available ?? 0} days`} color="blue" />
             <SummaryCard label="Comp-Off Available" value={`${leaveSummary?.compoff_available ?? 0} days`} color="amber" />
             <SummaryCard label="Total Available Leave" value={`${leaveSummary?.total_available ?? 0} days`} color="blue" />
+            <SummaryCard label="Work Logs (This Month)" value={`${leaveSummary?.work_logs_this_month ?? 0} days`} color="green" />
             <SummaryCard label="Pending" value={leaveSummary?.pending ?? 0} color="slate" />
             <SummaryCard label="Rejected" value={leaveSummary?.rejected ?? 0} color="red" />
           </div>
@@ -307,18 +380,24 @@ export default function EmployeeProfile() {
 
       {/* History Tabs */}
       <div className="bg-white rounded-xl border border-slate-100 overflow-hidden">
-        <div className="flex border-b border-slate-100">
+        <div className="flex border-b border-slate-100 overflow-x-auto">
           <button
             onClick={() => setActiveTab('leave')}
-            className={`px-6 py-3.5 text-sm font-medium transition-colors ${activeTab === 'leave' ? 'text-blue-600 border-b-2 border-blue-600' : 'text-slate-500 hover:text-slate-800'}`}
+            className={`px-6 py-3.5 text-sm font-medium transition-colors whitespace-nowrap ${activeTab === 'leave' ? 'text-blue-600 border-b-2 border-blue-600' : 'text-slate-500 hover:text-slate-800'}`}
           >
             Leave History ({leaveHistory.length})
           </button>
           <button
             onClick={() => setActiveTab('permission')}
-            className={`px-6 py-3.5 text-sm font-medium transition-colors ${activeTab === 'permission' ? 'text-blue-600 border-b-2 border-blue-600' : 'text-slate-500 hover:text-slate-800'}`}
+            className={`px-6 py-3.5 text-sm font-medium transition-colors whitespace-nowrap ${activeTab === 'permission' ? 'text-blue-600 border-b-2 border-blue-600' : 'text-slate-500 hover:text-slate-800'}`}
           >
             Permission History ({permHistory.length})
+          </button>
+          <button
+            onClick={() => setActiveTab('worklogs')}
+            className={`px-6 py-3.5 text-sm font-medium transition-colors whitespace-nowrap ${activeTab === 'worklogs' ? 'text-blue-600 border-b-2 border-blue-600' : 'text-slate-500 hover:text-slate-800'}`}
+          >
+            Work Logs ({workLogs.length})
           </button>
         </div>
 
@@ -450,6 +529,110 @@ export default function EmployeeProfile() {
             </table>
           </div>
           </>
+        )}
+
+        {activeTab === 'worklogs' && (
+          <div className="p-5 space-y-5">
+            {/* Add Work Log Form */}
+            <div className="bg-slate-50 border border-slate-100 rounded-xl p-4">
+              <h3 className="text-sm font-semibold text-slate-700 mb-3 flex items-center gap-2">
+                <BookOpen size={15} className="text-blue-500" /> Log a Worked Day
+              </h3>
+              <div className="flex flex-col sm:flex-row gap-3 items-start sm:items-end">
+                <div className="flex-1">
+                  <label className="block text-xs font-medium text-slate-500 mb-1">Work Date</label>
+                  <input
+                    type="date"
+                    value={workLogDate}
+                    onChange={e => setWorkLogDate(e.target.value)}
+                    className="w-full border border-slate-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+                  />
+                </div>
+                <Button size="sm" loading={workLogLoading} onClick={handleAddWorkLog}>
+                  <Plus size={14} /> Add Work Log
+                </Button>
+              </div>
+              <p className="text-xs text-slate-400 mt-2">
+                Adding a work log automatically recalculates earned leave credits. Formula: <strong>FLOOR(total logged days this month / 15)</strong> = earned leave credits for that month.
+              </p>
+            </div>
+
+            {/* Earned Leave Credits Ledger */}
+            {leaveSummary?.earned_credits_history?.length > 0 && (
+              <div>
+                <h3 className="text-sm font-semibold text-slate-700 mb-2 flex items-center gap-2">
+                  <BookOpen size={15} className="text-green-500" /> Earned Leave Credits Ledger
+                </h3>
+                <div className="overflow-x-auto">
+                  <table className="w-full text-sm">
+                    <thead>
+                      <tr className="border-b border-slate-100">
+                        <th className="text-left py-2 px-3 text-xs font-semibold uppercase text-slate-500">Month</th>
+                        <th className="text-left py-2 px-3 text-xs font-semibold uppercase text-slate-500">Days Logged</th>
+                        <th className="text-left py-2 px-3 text-xs font-semibold uppercase text-slate-500">Earned Credits</th>
+                        <th className="text-left py-2 px-3 text-xs font-semibold uppercase text-slate-500">Formula</th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-slate-50">
+                      {leaveSummary.earned_credits_history.map(row => (
+                        <tr key={row.id} className="hover:bg-slate-50">
+                          <td className="py-2 px-3 font-medium text-slate-800">{row.credit_month}</td>
+                          <td className="py-2 px-3 text-slate-600">{row.eligible_days}</td>
+                          <td className="py-2 px-3">
+                            <span className="px-2 py-0.5 bg-green-100 text-green-700 text-xs font-semibold rounded-full">+{row.earned_credits}</span>
+                          </td>
+                          <td className="py-2 px-3 text-slate-400 text-xs">floor({row.eligible_days} / 15) = {row.earned_credits}</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+            )}
+
+            {/* Work Logs List */}
+            <div>
+              <h3 className="text-sm font-semibold text-slate-700 mb-2">All Work Logs ({workLogs.length})</h3>
+              {workLogs.length === 0 ? (
+                <div className="text-center py-8 text-sm text-slate-400">No work logs recorded yet. Use the form above to add worked dates.</div>
+              ) : (
+                <div className="overflow-x-auto">
+                  <table className="w-full text-sm">
+                    <thead>
+                      <tr className="border-b border-slate-100">
+                        <th className="text-left py-2 px-3 text-xs font-semibold uppercase text-slate-500">Date</th>
+                        <th className="text-left py-2 px-3 text-xs font-semibold uppercase text-slate-500">Day</th>
+                        <th className="text-left py-2 px-3 text-xs font-semibold uppercase text-slate-500">Month</th>
+                        <th className="text-right py-2 px-3 text-xs font-semibold uppercase text-slate-500">Action</th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-slate-50">
+                      {workLogs.map(wl => {
+                        const d = wl.work_date ? new Date(wl.work_date + 'T00:00:00') : null
+                        const dayLabel = d ? ['Sun','Mon','Tue','Wed','Thu','Fri','Sat'][d.getDay()] : '—'
+                        return (
+                          <tr key={wl.id} className="hover:bg-slate-50">
+                            <td className="py-2 px-3 font-medium text-slate-800">{formatDate(wl.work_date)}</td>
+                            <td className="py-2 px-3 text-slate-500 text-xs">{dayLabel}</td>
+                            <td className="py-2 px-3 text-slate-500 text-xs">{wl.work_date?.slice(0, 7)}</td>
+                            <td className="py-2 px-3 text-right">
+                              <button
+                                onClick={() => handleDeleteWorkLog(wl.id)}
+                                className="text-red-400 hover:text-red-600 p-1 rounded transition-colors"
+                                title="Remove log"
+                              >
+                                <Trash2 size={14} />
+                              </button>
+                            </td>
+                          </tr>
+                        )
+                      })}
+                    </tbody>
+                  </table>
+                </div>
+              )}
+            </div>
+          </div>
         )}
       </div>
 

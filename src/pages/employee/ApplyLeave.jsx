@@ -37,23 +37,34 @@ export default function ApplyLeave() {
         .select('*')
         .eq('employee_phone', employee.phone)
 
+      // Fetch earned leave credits ledger
+      const { data: earnedCredits } = await supabase
+        .from('earned_leave_credits')
+        .select('earned_credits')
+        .eq('employee_phone', employee.phone)
+
       const currentMonthStr = new Date().toISOString().slice(0, 7)
 
-      // Regular leaves (excluding Comp-Off)
+      // Regular leaves (excluding Comp-Off and Earned Leave)
       const approvedRegularDaysThisMonth = (leaves || [])
-        .filter(r => r.status === 'Approved' && r.leave_type !== 'Comp-Off' && (r.start_date?.startsWith(currentMonthStr) || r.applied_at?.startsWith(currentMonthStr)))
+        .filter(r => r.status === 'Approved' && r.leave_type !== 'Comp-Off' && r.leave_type !== 'Earned Leave' && (r.start_date?.startsWith(currentMonthStr) || r.applied_at?.startsWith(currentMonthStr)))
         .reduce((sum, r) => sum + (r.total_days || 0), 0)
 
       // Comp-Off leaves
       const compOffEarned = (compoffs || [])
         .filter(r => r.status === 'Approved')
         .reduce((sum, r) => sum + (r.credited_days || 1), 0)
-
       const compOffUsed = (leaves || [])
         .filter(r => r.status === 'Approved' && r.leave_type === 'Comp-Off')
         .reduce((sum, r) => sum + (r.total_days || 0), 0)
-
       const compoffRemaining = Math.max(0, compOffEarned - compOffUsed)
+
+      // Earned leave from ledger
+      const totalEarnedCredits = (earnedCredits || []).reduce((sum, row) => sum + (row.earned_credits || 0), 0)
+      const earnedLeaveUsed = (leaves || [])
+        .filter(r => r.status === 'Approved' && r.leave_type === 'Earned Leave')
+        .reduce((sum, r) => sum + (r.total_days || 0), 0)
+      const earnedLeaveRemaining = Math.max(0, totalEarnedCredits - earnedLeaveUsed)
 
       const pendingDays = (leaves || [])
         .filter(r => r.status === 'Pending')
@@ -67,6 +78,7 @@ export default function ApplyLeave() {
         used: approvedRegularDaysThisMonth,
         remaining: Math.max(0, alloc - approvedRegularDaysThisMonth),
         compoff_remaining: compoffRemaining,
+        earned_leave_remaining: earnedLeaveRemaining,
         pending: pendingDays
       })
     }
@@ -77,7 +89,9 @@ export default function ApplyLeave() {
   const overBalance = balance && (
     form.leave_type === 'Comp-Off'
       ? totalDays > (balance.compoff_remaining || 0)
-      : form.leave_type !== 'Loss of Pay' && totalDays > (balance.remaining || 0)
+      : form.leave_type === 'Earned Leave'
+        ? totalDays > (balance.earned_leave_remaining || 0)
+        : form.leave_type !== 'Loss of Pay' && totalDays > (balance.remaining || 0)
   )
 
   const validate = () => {
@@ -240,7 +254,14 @@ export default function ApplyLeave() {
 
             {form.leave_type && balance && (
               <div className="text-xs font-semibold text-slate-500 mt-1">
-                Available balance for {form.leave_type}: <span className="text-blue-600 font-bold">{form.leave_type === 'Comp-Off' ? balance.compoff_remaining : balance.remaining} days</span>
+                Available balance for {form.leave_type}:{' '}
+                <span className="text-blue-600 font-bold">
+                  {form.leave_type === 'Comp-Off'
+                    ? balance.compoff_remaining
+                    : form.leave_type === 'Earned Leave'
+                      ? balance.earned_leave_remaining
+                      : balance.remaining} days
+                </span>
               </div>
             )}
 
@@ -272,7 +293,17 @@ export default function ApplyLeave() {
               <div className="bg-amber-50 border border-amber-200 rounded-lg p-3 flex items-start gap-2.5">
                 <Info size={16} className="text-amber-600 mt-0.5 shrink-0" />
                 <p className="text-xs text-amber-700 leading-normal">
-                  You are applying for {totalDays} days, which exceeds your remaining balance of {form.leave_type === 'Comp-Off' ? (balance?.compoff_remaining ?? 0) : (balance?.remaining ?? 0)} days. {form.leave_type === 'Comp-Off' ? 'You must earn more Comp-Off credits to cover this duration.' : 'If approved, the excess days may count as Loss of Pay.'}
+                  You are applying for {totalDays} days, which exceeds your remaining balance of{' '}
+                  {form.leave_type === 'Comp-Off'
+                    ? (balance?.compoff_remaining ?? 0)
+                    : form.leave_type === 'Earned Leave'
+                      ? (balance?.earned_leave_remaining ?? 0)
+                      : (balance?.remaining ?? 0)} days.{' '}
+                  {form.leave_type === 'Comp-Off'
+                    ? 'You must earn more Comp-Off credits to cover this duration.'
+                    : form.leave_type === 'Earned Leave'
+                      ? 'You must earn more working-day credits to cover this duration.'
+                      : 'If approved, the excess days may count as Loss of Pay.'}
                 </p>
               </div>
             )}

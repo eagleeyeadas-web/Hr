@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react'
 import { Link } from 'react-router-dom'
-import { CalendarOff, Clock, CheckCircle, AlertCircle, Plus, History, Calendar } from 'lucide-react'
+import { CalendarOff, Clock, CheckCircle, AlertCircle, History, Calendar, BookOpen } from 'lucide-react'
 import { supabase } from '../../lib/supabase'
 import { useAuth } from '../../context/AuthContext'
 import { StatCard, PageLoader } from '../../components/ui/Spinner'
@@ -33,24 +33,35 @@ export default function EmployeeDashboard() {
         .select('*')
         .eq('employee_phone', employee.phone)
 
+      // Fetch earned leave credits (persistent ledger)
+      const { data: earnedCredits } = await supabase
+        .from('earned_leave_credits')
+        .select('earned_credits')
+        .eq('employee_phone', employee.phone)
+
       const leaveHistoryData = leaves || []
 
-      // Calculate current month approved regular leave days (exclude 'Comp-Off')
+      // Calculate current month approved regular leave days (exclude 'Comp-Off' and 'Earned Leave')
       const currentMonthStr = new Date().toISOString().slice(0, 7)
       const approvedRegularLeaveDaysThisMonth = leaveHistoryData
-        .filter(r => r.status === 'Approved' && r.leave_type !== 'Comp-Off' && (r.start_date?.startsWith(currentMonthStr) || r.applied_at?.startsWith(currentMonthStr)))
+        .filter(r => r.status === 'Approved' && r.leave_type !== 'Comp-Off' && r.leave_type !== 'Earned Leave' && (r.start_date?.startsWith(currentMonthStr) || r.applied_at?.startsWith(currentMonthStr)))
         .reduce((sum, r) => sum + (r.total_days || 0), 0)
 
-      // Calculate Comp-Off balance (earned credits - used days)
+      // Comp-Off balance
       const compOffEarned = (compoffs || [])
         .filter(r => r.status === 'Approved')
         .reduce((sum, r) => sum + (r.credited_days || 1), 0)
-
       const compOffUsed = leaveHistoryData
         .filter(r => r.status === 'Approved' && r.leave_type === 'Comp-Off')
         .reduce((sum, r) => sum + (r.total_days || 0), 0)
-
       const compOffAvailable = Math.max(0, compOffEarned - compOffUsed)
+
+      // Earned leave balance (from ledger)
+      const totalEarnedCredits = (earnedCredits || []).reduce((sum, row) => sum + (row.earned_credits || 0), 0)
+      const earnedLeaveUsed = leaveHistoryData
+        .filter(r => r.status === 'Approved' && r.leave_type === 'Earned Leave')
+        .reduce((sum, r) => sum + (r.total_days || 0), 0)
+      const earnedLeaveAvailable = Math.max(0, totalEarnedCredits - earnedLeaveUsed)
 
       const pendingLeaveCount = leaveHistoryData.filter(r => r.status === 'Pending').length
 
@@ -58,12 +69,13 @@ export default function EmployeeDashboard() {
       const alloc = employee.leave_allocation ?? (localAlloc ? parseFloat(localAlloc) : 1)
 
       const regularRemaining = Math.max(0, alloc - approvedRegularLeaveDaysThisMonth)
-      const totalAvailableLeave = regularRemaining + compOffAvailable
+      const totalAvailableLeave = regularRemaining + compOffAvailable + earnedLeaveAvailable
 
       setLeaveSummary({
         allocation: alloc,
         used: approvedRegularLeaveDaysThisMonth,
         compoff_available: compOffAvailable,
+        earned_leave_available: earnedLeaveAvailable,
         total_available: totalAvailableLeave,
         pending: pendingLeaveCount
       })
@@ -112,9 +124,10 @@ export default function EmployeeDashboard() {
       {/* Leave Summary Cards */}
       <div>
         <h2 className="text-sm font-semibold text-slate-400 mb-3 uppercase tracking-wide">Leave Balance</h2>
-        <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+        <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-5 gap-4">
           <StatCard label="Monthly Allocation" value={`${leaveSummary?.allocation ?? 0} days/mo`} icon={CalendarOff} color="blue" />
-          <StatCard label="Approved Used (This Month)" value={`${leaveSummary?.used ?? 0} days`} icon={CheckCircle} color="green" />
+          <StatCard label="Regular Used (This Month)" value={`${leaveSummary?.used ?? 0} days`} icon={CheckCircle} color="green" />
+          <StatCard label="Earned Leave" value={`${leaveSummary?.earned_leave_available ?? 0} days`} icon={BookOpen} color="blue" />
           <StatCard label="Comp-Off Available" value={`${leaveSummary?.compoff_available ?? 0} days`} icon={CalendarOff} color="amber" />
           <StatCard label="Total Available Leave" value={`${leaveSummary?.total_available ?? 0} days`} icon={AlertCircle} color="purple" />
         </div>
