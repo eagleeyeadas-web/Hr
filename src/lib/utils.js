@@ -174,6 +174,7 @@ export const LEAVE_TYPES = [
   'Earned Leave',
   'Emergency Leave',
   'Loss of Pay',
+  'Comp-Off',
   'Other',
 ]
 

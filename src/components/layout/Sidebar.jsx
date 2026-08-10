@@ -22,6 +22,7 @@ const EMPLOYEE_NAV = [
   { to: '/employee/permission',  label: 'Permission Request', icon: Clock },
   { to: '/employee/my-leave',    label: 'My Leave',           icon: ClipboardList },
   { to: '/employee/my-permissions', label: 'My Permissions',  icon: ClipboardList },
+  { to: '/employee/compoff',     label: 'Comp-Off Requests',  icon: ClipboardList },
   { to: '/employee/notifications',  label: 'Notifications',   icon: Bell },
   { to: '/employee/profile',     label: 'Profile',            icon: Users },
 ]

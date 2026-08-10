@@ -48,7 +48,7 @@ CREATE TABLE public.leave_requests (
   employee_id       UUID NOT NULL REFERENCES public.employees(id) ON DELETE CASCADE,
   leave_type        TEXT NOT NULL CHECK (leave_type IN (
                       'Casual Leave', 'Sick Leave', 'Earned Leave',
-                      'Emergency Leave', 'Loss of Pay', 'Other'
+                      'Emergency Leave', 'Loss of Pay', 'Comp-Off', 'Other'
                     )),
   start_date        DATE NOT NULL,
   end_date          DATE NOT NULL,
@@ -89,7 +89,7 @@ CREATE TABLE public.notifications (
   employee_phone  TEXT,
   title           TEXT NOT NULL,
   message         TEXT NOT NULL,
-  type            TEXT NOT NULL CHECK (type IN ('leave', 'permission', 'system')) DEFAULT 'system',
+  type            TEXT NOT NULL CHECK (type IN ('leave', 'permission', 'system', 'compoff')) DEFAULT 'system',
   is_read         BOOLEAN DEFAULT FALSE,
   related_id      UUID,
   created_at      TIMESTAMPTZ DEFAULT NOW()
@@ -115,6 +115,20 @@ CREATE TABLE public.audit_logs (
   performed_by  UUID REFERENCES auth.users(id) ON DELETE SET NULL,
   details       JSONB,
   created_at    TIMESTAMPTZ DEFAULT NOW()
+);
+
+-- 5c. COMP-OFF REQUESTS
+CREATE TABLE public.compoff_requests (
+  id              UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+  employee_phone  TEXT NOT NULL REFERENCES public.employees(phone) ON DELETE CASCADE,
+  worked_date     DATE NOT NULL,
+  reason          TEXT NOT NULL,
+  status          TEXT NOT NULL CHECK (status IN ('Pending', 'Approved', 'Rejected')) DEFAULT 'Pending',
+  credited_days   INTEGER NOT NULL DEFAULT 1,
+  approved_by     UUID REFERENCES auth.users(id) ON DELETE SET NULL,
+  approved_at     TIMESTAMPTZ,
+  created_at      TIMESTAMPTZ DEFAULT NOW(),
+  updated_at      TIMESTAMPTZ DEFAULT NOW()
 );
 
 -- INDEXES for performance
@@ -557,7 +571,7 @@ BEGIN
   -- employee-targeted notifications (employee_phone IS NOT NULL AND title is NOT 'Leave Request Submitted' / 'Permission Request Submitted')
   IF NEW.user_id IS NULL AND (
     NEW.employee_phone IS NULL OR 
-    NEW.title IN ('Leave Request Submitted', 'Permission Request Submitted')
+    NEW.title IN ('Leave Request Submitted', 'Permission Request Submitted', 'Comp-Off Request Submitted')
   ) THEN
     RETURN NEW;
   END IF;

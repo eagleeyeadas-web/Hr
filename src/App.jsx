@@ -24,6 +24,7 @@ import ApplyLeave from './pages/employee/ApplyLeave'
 import PermissionRequest from './pages/employee/PermissionRequest'
 import MyLeave from './pages/employee/MyLeave'
 import MyPermissions from './pages/employee/MyPermissions'
+import EmployeeCompOff from './pages/employee/CompOff'
 import EmployeeProfilePage from './pages/employee/Profile'
 import EmployeeNotifications from './pages/hr/Notifications' // Reused
 
@@ -95,6 +96,7 @@ function AppRoutes() {
         <Route path="permission" element={<PermissionRequest />} />
         <Route path="my-leave" element={<MyLeave />} />
         <Route path="my-permissions" element={<MyPermissions />} />
+        <Route path="compoff" element={<EmployeeCompOff />} />
         <Route path="profile" element={<EmployeeProfilePage />} />
         <Route path="notifications" element={<EmployeeNotifications />} />
       </Route>

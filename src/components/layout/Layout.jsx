@@ -52,6 +52,7 @@ const EMP_TITLES = {
   '/employee/permission':   'Permission Request',
   '/employee/my-leave':     'My Leave Requests',
   '/employee/my-permissions': 'My Permission Requests',
+  '/employee/compoff':      'Comp-Off Requests',
   '/employee/notifications': 'Notifications',
   '/employee/profile':      'My Profile',
 }

@@ -14,6 +14,7 @@ const TABS = [
   { label: 'All Requests', value: 'all' },
   { label: 'Leave', value: 'leave' },
   { label: 'Permissions', value: 'permission' },
+  { label: 'Comp-Off', value: 'compoff' },
 ]
 
 export default function LeaveRequestsPage() {
@@ -21,6 +22,7 @@ export default function LeaveRequestsPage() {
   const [tab, setTab] = useState('all')
   const [leaveRequests, setLeaveRequests] = useState([])
   const [permRequests, setPermRequests] = useState([])
+  const [compRequests, setCompRequests] = useState([])
   const [loading, setLoading] = useState(true)
   const [filters, setFilters] = useState({ status: '', leaveType: '', month: '', year: '', search: '', company: '' })
   const [selectedReq, setSelectedReq] = useState(null)
@@ -75,6 +77,29 @@ export default function LeaveRequestsPage() {
       r.employees?.company === filters.company
     )
     setPermRequests(filteredP)
+
+    // Comp-off requests
+    let cq = supabase
+      .from('compoff_requests')
+      .select('*, employees(full_name, company)')
+      .order('created_at', { ascending: false })
+    if (filters.status) cq = cq.eq('status', filters.status)
+    if (filters.year) cq = cq.gte('created_at', `${filters.year}-01-01`).lte('created_at', `${filters.year}-12-31T23:59:59`)
+    if (filters.month && filters.year) {
+      const m = filters.month.padStart(2, '0')
+      const daysInMonth = new Date(filters.year, filters.month, 0).getDate()
+      cq = cq.gte('created_at', `${filters.year}-${m}-01`).lte('created_at', `${filters.year}-${m}-${daysInMonth}T23:59:59`)
+    }
+    const { data: cd } = await cq
+    let filteredC = cd || []
+    if (filters.search) filteredC = filteredC.filter(r =>
+      r.employees?.full_name?.toLowerCase().includes(filters.search.toLowerCase())
+    )
+    if (filters.company) filteredC = filteredC.filter(r =>
+      r.employees?.company === filters.company
+    )
+    setCompRequests(filteredC)
+
     setLoading(false)
   }, [filters])
 
@@ -83,7 +108,10 @@ export default function LeaveRequestsPage() {
   const handleApprove = async () => {
     setActionLoading(true)
     try {
-      const table = selectedType === 'leave' ? 'leave_requests' : 'permission_requests'
+      let table = 'leave_requests'
+      if (selectedType === 'permission') table = 'permission_requests'
+      if (selectedType === 'compoff') table = 'compoff_requests'
+
       const { error } = await supabase
         .from(table)
         .update({
@@ -98,10 +126,16 @@ export default function LeaveRequestsPage() {
       // Create notification for employee
       await supabase.from('notifications').insert({
         employee_phone: selectedReq.employee_phone,
-        title: selectedType === 'leave' ? 'Leave Approved' : 'Permission Approved',
+        title: selectedType === 'leave'
+          ? 'Leave Approved'
+          : selectedType === 'permission'
+            ? 'Permission Approved'
+            : 'Comp-Off Approved',
         message: selectedType === 'leave'
           ? 'Your leave request has been approved.'
-          : 'Your permission request has been approved.',
+          : selectedType === 'permission'
+            ? 'Your permission request has been approved.'
+            : `Your Comp-Off request for worked date ${formatDate(selectedReq.worked_date)} has been approved.`,
         type: selectedType,
         related_id: selectedReq.id
       })
@@ -117,7 +151,10 @@ export default function LeaveRequestsPage() {
     if (!rejectionReason.trim()) { toast.error('Enter rejection reason'); return }
     setActionLoading(true)
     try {
-      const table = selectedType === 'leave' ? 'leave_requests' : 'permission_requests'
+      let table = 'leave_requests'
+      if (selectedType === 'permission') table = 'permission_requests'
+      if (selectedType === 'compoff') table = 'compoff_requests'
+
       const { error } = await supabase
         .from(table)
         .update({
@@ -133,10 +170,16 @@ export default function LeaveRequestsPage() {
       // Create notification for employee
       await supabase.from('notifications').insert({
         employee_phone: selectedReq.employee_phone,
-        title: selectedType === 'leave' ? 'Leave Rejected' : 'Permission Rejected',
+        title: selectedType === 'leave'
+          ? 'Leave Rejected'
+          : selectedType === 'permission'
+            ? 'Permission Rejected'
+            : 'Comp-Off Rejected',
         message: selectedType === 'leave'
           ? `Your leave request has been rejected. Reason: ${rejectionReason}`
-          : `Your permission request has been rejected. Reason: ${rejectionReason}`,
+          : selectedType === 'permission'
+            ? `Your permission request has been rejected. Reason: ${rejectionReason}`
+            : `Your Comp-Off request for worked date ${formatDate(selectedReq.worked_date)} has been rejected. Reason: ${rejectionReason}`,
         type: selectedType,
         related_id: selectedReq.id
       })
@@ -151,8 +194,9 @@ export default function LeaveRequestsPage() {
   const years = Array.from({ length: 5 }, (_, i) => new Date().getFullYear() - i)
   const months = ['January','February','March','April','May','June','July','August','September','October','November','December']
 
-  const visibleLeave = tab === 'permission' ? [] : leaveRequests
-  const visiblePerm = tab === 'leave' ? [] : permRequests
+  const visibleLeave = (tab === 'all' || tab === 'leave') ? leaveRequests : []
+  const visiblePerm = (tab === 'all' || tab === 'permission') ? permRequests : []
+  const visibleComp = (tab === 'all' || tab === 'compoff') ? compRequests : []
 
   const clearFilters = () => setFilters({ status: '', leaveType: '', month: '', year: '', search: '', company: '' })
 
@@ -261,7 +305,7 @@ export default function LeaveRequestsPage() {
       )}
 
       {/* Leave Requests Table — Desktop */}
-      {tab !== 'permission' && (
+      {(tab === 'all' || tab === 'leave') && (
         <div className="hidden md:block bg-white rounded-xl border border-slate-100 overflow-hidden">
           <div className="px-5 py-3 border-b border-slate-100 flex items-center justify-between">
             <h2 className="font-semibold text-sm text-slate-800">Leave Requests</h2>
@@ -313,7 +357,7 @@ export default function LeaveRequestsPage() {
       )}
 
       {/* Permission Requests — Mobile Cards */}
-      {tab !== 'leave' && (
+      {(tab === 'all' || tab === 'permission') && (
         <div className="block md:hidden space-y-3">
           <div className="bg-white rounded-xl border border-slate-100 px-4 py-3 flex items-center justify-between">
             <h2 className="font-semibold text-sm text-slate-800">Permission Requests</h2>
@@ -353,7 +397,7 @@ export default function LeaveRequestsPage() {
       )}
 
       {/* Permission Requests Table — Desktop */}
-      {tab !== 'leave' && (
+      {(tab === 'all' || tab === 'permission') && (
         <div className="hidden md:block bg-white rounded-xl border border-slate-100 overflow-hidden">
           <div className="px-5 py-3 border-b border-slate-100 flex items-center justify-between">
             <h2 className="font-semibold text-sm text-slate-800">Permission Requests</h2>
@@ -404,6 +448,98 @@ export default function LeaveRequestsPage() {
         </div>
       )}
 
+      {/* Comp-Off Requests — Mobile Cards */}
+      {(tab === 'all' || tab === 'compoff') && (
+        <div className="block md:hidden space-y-3 mt-6">
+          <div className="bg-white rounded-xl border border-slate-100 px-4 py-3 flex items-center justify-between">
+            <h2 className="font-semibold text-sm text-slate-800">Comp-Off Requests</h2>
+            <span className="text-xs text-slate-400">{visibleComp.length} record{visibleComp.length !== 1 ? 's' : ''}</span>
+          </div>
+          {loading ? (
+            Array.from({length:2}).map((_,i) => <div key={i} className="bg-white rounded-xl border border-slate-100 p-4 animate-pulse h-24" />)
+          ) : visibleComp.length === 0 ? (
+            <div className="bg-white rounded-xl border border-slate-100 text-center py-10 text-sm text-slate-400">No comp-off requests found</div>
+          ) : visibleComp.map(r => (
+            <div key={r.id} className="bg-white rounded-xl border border-slate-100 p-4">
+              <div className="flex items-start justify-between gap-2 mb-2">
+                <div>
+                  <p className="font-semibold text-slate-800">{r.employees?.full_name}</p>
+                  <p className="text-xs text-slate-400 font-mono mt-0.5">{r.employee_phone}</p>
+                </div>
+                <StatusBadge status={r.status} />
+              </div>
+              <p className="text-sm text-slate-600">Worked Date: {formatDate(r.worked_date)}</p>
+              <p className="text-sm text-slate-500 mt-1">Credited Days: {r.credited_days}</p>
+              <p className="text-xs text-slate-400 mt-1 truncate">{r.reason}</p>
+              {r.status === 'Pending' && (
+                <div className="flex gap-2 mt-3 pt-3 border-t border-slate-50">
+                  <button onClick={() => handleApproveDirectly(r, 'compoff')}
+                    className="flex-1 min-h-[44px] text-sm font-medium bg-emerald-50 text-emerald-700 rounded-lg hover:bg-emerald-100 transition-colors">
+                    ✓ Approve
+                  </button>
+                  <button onClick={() => {setSelectedReq(r); setSelectedType('compoff'); setShowRejectForm(true); setRejectionReason('')}}
+                    className="flex-1 min-h-[44px] text-sm font-medium bg-red-50 text-red-700 rounded-lg hover:bg-red-100 transition-colors">
+                    ✗ Reject
+                  </button>
+                </div>
+              )}
+            </div>
+          ))}
+        </div>
+      )}
+
+      {/* Comp-Off Requests Table — Desktop */}
+      {(tab === 'all' || tab === 'compoff') && (
+        <div className="hidden md:block bg-white rounded-xl border border-slate-100 overflow-hidden mt-6">
+          <div className="px-5 py-3 border-b border-slate-100 flex items-center justify-between">
+            <h2 className="font-semibold text-sm text-slate-800">Comp-Off Requests</h2>
+            <span className="text-xs text-slate-400">{visibleComp.length} record{visibleComp.length !== 1 ? 's' : ''}</span>
+          </div>
+          <div className="overflow-x-auto">
+            <table className="w-full text-sm">
+              <thead>
+                <tr className="bg-slate-50 border-b border-slate-100">
+                  <th className="text-left px-5 py-3 text-xs font-semibold text-slate-500 uppercase">Employee</th>
+                  <th className="text-left px-4 py-3 text-xs font-semibold text-slate-500 uppercase">Worked Date</th>
+                  <th className="text-left px-4 py-3 text-xs font-semibold text-slate-500 uppercase">Credited Days</th>
+                  <th className="text-left px-4 py-3 text-xs font-semibold text-slate-500 uppercase">Reason</th>
+                  <th className="text-left px-4 py-3 text-xs font-semibold text-slate-500 uppercase">Applied On</th>
+                  <th className="text-left px-4 py-3 text-xs font-semibold text-slate-500 uppercase">Status</th>
+                  <th className="text-right px-5 py-3 text-xs font-semibold text-slate-500 uppercase">Action</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-slate-50">
+                {loading ? Array.from({length:3}).map((_,i) => <SkeletonRow key={i} cols={7} />) :
+                  visibleComp.length === 0 ? (
+                    <tr><td colSpan={7} className="text-center py-10 text-sm text-slate-400">No comp-off requests found</td></tr>
+                  ) : visibleComp.map(r => (
+                    <tr key={r.id} className="table-row-hover" onClick={() => {setSelectedReq(r); setSelectedType('compoff'); setShowRejectForm(false); setRejectionReason('')}}>
+                      <td className="px-5 py-3">
+                        <p className="font-medium text-slate-800">{r.employees?.full_name}</p>
+                      </td>
+                      <td className="px-4 py-3 text-slate-600">{formatDate(r.worked_date)}</td>
+                      <td className="px-4 py-3 text-slate-600">{r.credited_days}</td>
+                      <td className="px-4 py-3 text-slate-500 max-w-[160px] truncate" title={r.reason}>{r.reason}</td>
+                      <td className="px-4 py-3 text-slate-500 text-xs">{formatDate(r.created_at?.split('T')[0])}</td>
+                      <td className="px-4 py-3"><StatusBadge status={r.status} /></td>
+                      <td className="px-5 py-3 text-right" onClick={e => e.stopPropagation()}>
+                        {r.status === 'Pending' && (
+                          <div className="flex justify-end gap-1">
+                            <button onClick={() => {setSelectedReq(r); setSelectedType('compoff'); handleApproveDirectly(r, 'compoff')}}
+                              className="px-2 py-1 text-xs bg-emerald-50 text-emerald-700 rounded hover:bg-emerald-100 transition-colors">✓ Approve</button>
+                            <button onClick={() => {setSelectedReq(r); setSelectedType('compoff'); setShowRejectForm(false); setRejectionReason('');}}
+                              className="px-2 py-1 text-xs bg-red-50 text-red-700 rounded hover:bg-red-100 transition-colors">✗ Reject</button>
+                          </div>
+                        )}
+                      </td>
+                    </tr>
+                  ))}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      )}
+
       {/* Request Detail / Action Modal */}
       <Modal
         isOpen={!!selectedReq}
@@ -424,11 +560,16 @@ export default function LeaveRequestsPage() {
                   <InfoRow label="End Date" value={formatDate(selectedReq.end_date)} />
                   <InfoRow label="Total Days" value={selectedReq.total_days} />
                 </>
-              ) : (
+              ) : selectedType === 'permission' ? (
                 <>
                   <InfoRow label="Date" value={formatDate(selectedReq.permission_date)} />
                   <InfoRow label="Time" value={`${formatTime(selectedReq.start_time)} – ${formatTime(selectedReq.end_time)}`} />
                   <InfoRow label="Duration" value={formatDuration(selectedReq.duration_minutes)} />
+                </>
+              ) : (
+                <>
+                  <InfoRow label="Worked Saturday Date" value={formatDate(selectedReq.worked_date)} />
+                  <InfoRow label="Credited Days" value={selectedReq.credited_days} />
                 </>
               )}
               <InfoRow label="Reason" value={selectedReq.reason} />
@@ -468,7 +609,10 @@ export default function LeaveRequestsPage() {
   async function handleApproveDirectly(req, type) {
     setActionLoading(true)
     try {
-      const table = type === 'leave' ? 'leave_requests' : 'permission_requests'
+      let table = 'leave_requests'
+      if (type === 'permission') table = 'permission_requests'
+      if (type === 'compoff') table = 'compoff_requests'
+
       const { error } = await supabase
         .from(table)
         .update({
@@ -483,10 +627,16 @@ export default function LeaveRequestsPage() {
       // Create notification for employee
       await supabase.from('notifications').insert({
         employee_phone: req.employee_phone,
-        title: type === 'leave' ? 'Leave Approved' : 'Permission Approved',
+        title: type === 'leave'
+          ? 'Leave Approved'
+          : type === 'permission'
+            ? 'Permission Approved'
+            : 'Comp-Off Approved',
         message: type === 'leave'
           ? 'Your leave request has been approved.'
-          : 'Your permission request has been approved.',
+          : type === 'permission'
+            ? 'Your permission request has been approved.'
+            : `Your Comp-Off request for worked date ${formatDate(req.worked_date)} has been approved.`,
         type: type,
         related_id: req.id
       })

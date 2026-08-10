@@ -335,6 +335,8 @@ serve(async (req) => {
         relativeUrl = "/employee/my-leave";
       } else if (notificationType === "permission") {
         relativeUrl = "/employee/my-permissions";
+      } else if (notificationType === "compoff") {
+        relativeUrl = "/employee/compoff";
       } else {
         relativeUrl = "/employee/dashboard";
       }
@@ -343,6 +345,8 @@ serve(async (req) => {
         relativeUrl = "/hr/leave";
       } else if (notificationType === "permission") {
         relativeUrl = "/hr/permissions";
+      } else if (notificationType === "compoff") {
+        relativeUrl = "/hr/leave";
       } else {
         relativeUrl = "/hr/dashboard";
       }

@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react'
 import { Link } from 'react-router-dom'
-import { CalendarOff, Clock, CheckCircle, AlertCircle, Plus, History } from 'lucide-react'
+import { CalendarOff, Clock, CheckCircle, AlertCircle, Plus, History, Calendar } from 'lucide-react'
 import { supabase } from '../../lib/supabase'
 import { useAuth } from '../../context/AuthContext'
 import { StatCard, PageLoader } from '../../components/ui/Spinner'
@@ -21,29 +21,50 @@ export default function EmployeeDashboard() {
       setLoading(true)
 
       // Fetch leaves for this employee
-      const { data: leaves, error: leavesErr } = await supabase
+      const { data: leaves } = await supabase
         .from('leave_requests')
         .select('*')
         .eq('employee_phone', employee.phone)
         .order('applied_at', { ascending: false })
 
+      // Fetch comp-off requests for this employee
+      const { data: compoffs } = await supabase
+        .from('compoff_requests')
+        .select('*')
+        .eq('employee_phone', employee.phone)
+
       const leaveHistoryData = leaves || []
 
-      // Calculate current month approved leave days
+      // Calculate current month approved regular leave days (exclude 'Comp-Off')
       const currentMonthStr = new Date().toISOString().slice(0, 7)
-      const approvedLeaveDaysThisMonth = leaveHistoryData
-        .filter(r => r.status === 'Approved' && (r.start_date?.startsWith(currentMonthStr) || r.applied_at?.startsWith(currentMonthStr)))
+      const approvedRegularLeaveDaysThisMonth = leaveHistoryData
+        .filter(r => r.status === 'Approved' && r.leave_type !== 'Comp-Off' && (r.start_date?.startsWith(currentMonthStr) || r.applied_at?.startsWith(currentMonthStr)))
         .reduce((sum, r) => sum + (r.total_days || 0), 0)
+
+      // Calculate Comp-Off balance (earned credits - used days)
+      const compOffEarned = (compoffs || [])
+        .filter(r => r.status === 'Approved')
+        .reduce((sum, r) => sum + (r.credited_days || 1), 0)
+
+      const compOffUsed = leaveHistoryData
+        .filter(r => r.status === 'Approved' && r.leave_type === 'Comp-Off')
+        .reduce((sum, r) => sum + (r.total_days || 0), 0)
+
+      const compOffAvailable = Math.max(0, compOffEarned - compOffUsed)
 
       const pendingLeaveCount = leaveHistoryData.filter(r => r.status === 'Pending').length
 
       const localAlloc = localStorage.getItem('leave_alloc_' + employee.phone)
       const alloc = employee.leave_allocation ?? (localAlloc ? parseFloat(localAlloc) : 1)
 
+      const regularRemaining = Math.max(0, alloc - approvedRegularLeaveDaysThisMonth)
+      const totalAvailableLeave = regularRemaining + compOffAvailable
+
       setLeaveSummary({
         allocation: alloc,
-        used: approvedLeaveDaysThisMonth,
-        remaining: Math.max(0, alloc - approvedLeaveDaysThisMonth),
+        used: approvedRegularLeaveDaysThisMonth,
+        compoff_available: compOffAvailable,
+        total_available: totalAvailableLeave,
         pending: pendingLeaveCount
       })
       setRecentLeave(leaveHistoryData.slice(0, 4))
@@ -90,12 +111,12 @@ export default function EmployeeDashboard() {
 
       {/* Leave Summary Cards */}
       <div>
-        <h2 className="text-sm font-semibold text-slate-600 mb-3 uppercase tracking-wide">Monthly Leave Balance</h2>
+        <h2 className="text-sm font-semibold text-slate-400 mb-3 uppercase tracking-wide">Leave Balance</h2>
         <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
           <StatCard label="Monthly Allocation" value={`${leaveSummary?.allocation ?? 0} days/mo`} icon={CalendarOff} color="blue" />
-          <StatCard label="Used (This Month)" value={`${leaveSummary?.used ?? 0} days`} icon={CheckCircle} color="green" />
-          <StatCard label="Remaining (This Month)" value={`${leaveSummary?.remaining ?? 0} days`} icon={CalendarOff} color="amber" />
-          <StatCard label="Pending Requests" value={leaveSummary?.pending ?? 0} icon={AlertCircle} color="slate" />
+          <StatCard label="Approved Used (This Month)" value={`${leaveSummary?.used ?? 0} days`} icon={CheckCircle} color="green" />
+          <StatCard label="Comp-Off Available" value={`${leaveSummary?.compoff_available ?? 0} days`} icon={CalendarOff} color="amber" />
+          <StatCard label="Total Available Leave" value={`${leaveSummary?.total_available ?? 0} days`} icon={AlertCircle} color="purple" />
         </div>
       </div>
 
@@ -111,10 +132,11 @@ export default function EmployeeDashboard() {
 
       {/* Quick Actions */}
       <div>
-        <h2 className="text-sm font-semibold text-slate-600 mb-3 uppercase tracking-wide">Quick Actions</h2>
-        <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+        <h2 className="text-sm font-semibold text-slate-400 mb-3 uppercase tracking-wide">Quick Actions</h2>
+        <div className="grid grid-cols-2 md:grid-cols-5 gap-3">
           <QuickAction to="/employee/apply-leave" icon={<CalendarOff size={20} />} label="Apply Leave" color="blue" />
           <QuickAction to="/employee/permission" icon={<Clock size={20} />} label="Request Permission" color="purple" />
+          <QuickAction to="/employee/compoff" icon={<Calendar size={20} />} label="Comp-Off Requests" color="amber" />
           <QuickAction to="/employee/my-leave" icon={<History size={20} />} label="Leave History" color="slate" />
           <QuickAction to="/employee/my-permissions" icon={<History size={20} />} label="Permission History" color="slate" />
         </div>

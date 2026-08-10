@@ -70,19 +70,41 @@ export default function EmployeeProfile() {
     const leaveHistoryData = lh || []
     setLeaveHistory(leaveHistoryData)
 
-    // Calculate current month approved leave days
+    // Fetch comp-off requests
+    const { data: compoffs } = await supabase
+      .from('compoff_requests')
+      .select('*')
+      .eq('employee_phone', employeePhone)
+
+    // Calculate current month approved regular leave days (exclude 'Comp-Off')
     const currentMonthStr = new Date().toISOString().slice(0, 7)
-    const approvedLeaveDaysThisMonth = leaveHistoryData
-      .filter(r => r.status === 'Approved' && (r.start_date?.startsWith(currentMonthStr) || r.applied_at?.startsWith(currentMonthStr)))
+    const approvedRegularDaysThisMonth = leaveHistoryData
+      .filter(r => r.status === 'Approved' && r.leave_type !== 'Comp-Off' && (r.start_date?.startsWith(currentMonthStr) || r.applied_at?.startsWith(currentMonthStr)))
       .reduce((sum, r) => sum + (r.total_days || 0), 0)
+
+    // Calculate Comp-Off balance (earned credits - used days)
+    const compOffEarned = (compoffs || [])
+      .filter(r => r.status === 'Approved')
+      .reduce((sum, r) => sum + (r.credited_days || 1), 0)
+
+    const compOffUsed = leaveHistoryData
+      .filter(r => r.status === 'Approved' && r.leave_type === 'Comp-Off')
+      .reduce((sum, r) => sum + (r.total_days || 0), 0)
+
+    const compOffAvailable = Math.max(0, compOffEarned - compOffUsed)
 
     const pendingLeaveCount = leaveHistoryData.filter(r => r.status === 'Pending').length
     const rejectedLeaveCount = leaveHistoryData.filter(r => r.status === 'Rejected').length
 
+    const regularRemaining = Math.max(0, customAlloc - approvedRegularDaysThisMonth)
+    const totalAvailable = regularRemaining + compOffAvailable
+
     setLeaveSummary({
       allocation: customAlloc,
-      used: approvedLeaveDaysThisMonth,
-      remaining: Math.max(0, customAlloc - approvedLeaveDaysThisMonth),
+      used: approvedRegularDaysThisMonth,
+      remaining: regularRemaining,
+      compoff_available: compOffAvailable,
+      total_available: totalAvailable,
       pending: pendingLeaveCount,
       rejected: rejectedLeaveCount
     })
@@ -258,9 +280,11 @@ export default function EmployeeProfile() {
             </button>
           </div>
           <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
-            <SummaryCard label="Allocation" value={`${leaveSummary?.allocation ?? 0} days`} color="blue" />
-            <SummaryCard label="Used" value={`${leaveSummary?.used ?? 0} days`} color="green" />
-            <SummaryCard label="Remaining" value={`${leaveSummary?.remaining ?? 0} days`} color="amber" />
+            <SummaryCard label="Regular Allocation" value={`${leaveSummary?.allocation ?? 0} days`} color="blue" />
+            <SummaryCard label="Regular Used (This Month)" value={`${leaveSummary?.used ?? 0} days`} color="green" />
+            <SummaryCard label="Regular Remaining" value={`${leaveSummary?.remaining ?? 0} days`} color="slate" />
+            <SummaryCard label="Comp-Off Available" value={`${leaveSummary?.compoff_available ?? 0} days`} color="amber" />
+            <SummaryCard label="Total Available Leave" value={`${leaveSummary?.total_available ?? 0} days`} color="blue" />
             <SummaryCard label="Pending" value={leaveSummary?.pending ?? 0} color="slate" />
             <SummaryCard label="Rejected" value={leaveSummary?.rejected ?? 0} color="red" />
           </div>
