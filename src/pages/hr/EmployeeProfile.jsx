@@ -147,10 +147,6 @@ export default function EmployeeProfile() {
       earned_credits_history: earnedCredits || []
     })
 
-    // Calculate permission ledger stats
-    const totalPermissionCredits = (permCredits || [])
-      .reduce((sum, row) => sum + (row.monthly_credit_hours || 2), 0)
-
     // Permission history
     const { data: ph } = await supabase
       .from('permission_requests')
@@ -160,15 +156,15 @@ export default function EmployeeProfile() {
     const permHistoryData = ph || []
     setPermHistory(permHistoryData)
 
-    // Calculate permission summary metrics client-side
-    const approvedPermMinutes = permHistoryData
-      .filter(r => r.status === 'Approved')
+    // Calculate permission summary metrics client-side (for current calendar month only)
+    const approvedPermMinutesThisMonth = permHistoryData
+      .filter(r => r.status === 'Approved' && r.permission_date?.startsWith(currentMonthStr))
       .reduce((sum, r) => sum + (r.duration_minutes || 0), 0)
     const pendingPermCount = permHistoryData.filter(r => r.status === 'Pending').length
     const rejectedPermCount = permHistoryData.filter(r => r.status === 'Rejected').length
 
-    const approvedPermHours = approvedPermMinutes / 60.0
-    const permissionAvailable = Math.max(0, basePermAllocation + totalPermissionCredits - approvedPermHours)
+    const approvedPermHours = approvedPermMinutesThisMonth / 60.0
+    const permissionAvailable = Math.max(0, basePermAllocation + 2.0 - approvedPermHours)
 
     setPermSummary({
       total: permHistoryData.length,
@@ -176,7 +172,7 @@ export default function EmployeeProfile() {
       rejected: rejectedPermCount,
       pending: pendingPermCount,
       approved_hours: approvedPermHours.toFixed(1),
-      total_credits: totalPermissionCredits.toFixed(1),
+      total_credits: (basePermAllocation + 2.0).toFixed(1),
       base_permission_allocation: basePermAllocation,
       available: permissionAvailable.toFixed(1)
     })

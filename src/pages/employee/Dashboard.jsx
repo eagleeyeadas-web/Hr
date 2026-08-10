@@ -119,17 +119,14 @@ export default function EmployeeDashboard() {
 
       const permHistoryData = perms || []
 
-      const approvedPermMinutes = permHistoryData
-        .filter(r => r.status === 'Approved')
+      const approvedPermMinutesThisMonth = permHistoryData
+        .filter(r => r.status === 'Approved' && r.permission_date?.startsWith(currentMonthStr))
         .reduce((sum, r) => sum + (r.duration_minutes || 0), 0)
 
       const pendingPermCount = permHistoryData.filter(r => r.status === 'Pending').length
 
-      // Calculate permission ledger stats
-      const totalPermissionCredits = (permCredits || [])
-        .reduce((sum, row) => sum + (row.monthly_credit_hours || 2), 0)
-      const approvedPermHours = approvedPermMinutes / 60.0
-      const permissionAvailable = Math.max(0, basePermAllocation + totalPermissionCredits - approvedPermHours)
+      const approvedPermHours = approvedPermMinutesThisMonth / 60.0
+      const permissionAvailable = Math.max(0, basePermAllocation + 2.0 - approvedPermHours)
 
       setPermSummary({
         total: permHistoryData.length,
