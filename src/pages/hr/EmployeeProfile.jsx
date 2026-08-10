@@ -46,6 +46,9 @@ export default function EmployeeProfile() {
   const [actionLoading, setActionLoading] = useState(false)
   const [workLogDate, setWorkLogDate] = useState('')
   const [workLogLoading, setWorkLogLoading] = useState(false)
+  const [showAllocModal, setShowAllocModal] = useState(false)
+  const [allocInput, setAllocInput] = useState('0')
+  const [allocSaving, setAllocSaving] = useState(false)
 
   const fetchAll = async () => {
     setLoading(true)
@@ -97,16 +100,20 @@ export default function EmployeeProfile() {
     const compOffAvailable = Math.max(0, compOffEarned - compOffUsed)
 
     // ---- EARNED LEAVE BALANCE ----
+    const baseAllocation = emp.leave_allocation ?? 0
     const totalEarnedCredits = (earnedCredits || []).reduce((sum, row) => sum + (row.earned_credits || 0), 0)
     const earnedLeaveUsed = leaveHistoryData
       .filter(r => r.status === 'Approved' && r.leave_type === 'Earned Leave')
       .reduce((sum, r) => sum + (r.total_days || 0), 0)
-    const earnedLeaveAvailable = Math.max(0, totalEarnedCredits - earnedLeaveUsed)
+    const earnedLeaveAvailable = Math.max(0, baseAllocation + totalEarnedCredits - earnedLeaveUsed)
 
     const pendingLeaveCount = leaveHistoryData.filter(r => r.status === 'Pending').length
     const rejectedLeaveCount = leaveHistoryData.filter(r => r.status === 'Rejected').length
 
     const totalAvailable = earnedLeaveAvailable + compOffAvailable
+
+    // Update allocInput with current base allocation value
+    setAllocInput(String(baseAllocation))
 
     // Current month stats
     const currentMonthStr = new Date().toISOString().slice(0, 7)
@@ -114,6 +121,7 @@ export default function EmployeeProfile() {
     const thisMonthLedger = (earnedCredits || []).find(r => r.credit_month === currentMonthStr)
 
     setLeaveSummary({
+      base_allocation: baseAllocation,
       earned_leave_available: earnedLeaveAvailable,
       compoff_available: compOffAvailable,
       total_available: totalAvailable,
@@ -152,6 +160,30 @@ export default function EmployeeProfile() {
   }
 
   useEffect(() => { fetchAll() }, [employeePhone])
+
+  const handleUpdateAllocation = async () => {
+    const val = parseFloat(allocInput)
+    if (isNaN(val) || val < 0) {
+      toast.error('Please enter a valid leave allocation credit number.')
+      return
+    }
+    setAllocSaving(true)
+    try {
+      const { error } = await supabase
+        .from('employees')
+        .update({ leave_allocation: val })
+        .eq('phone', employeePhone)
+      
+      if (error) throw error
+      toast.success(`Allocated leave credit updated to ${val} days!`)
+      setShowAllocModal(false)
+      fetchAll()
+    } catch (err) {
+      toast.error(err.message || 'Failed to update allocation')
+    } finally {
+      setAllocSaving(false)
+    }
+  }
 
   const handleAddWorkLog = async () => {
     if (!workLogDate) { toast.error('Please select a date.'); return }
@@ -307,14 +339,20 @@ export default function EmployeeProfile() {
             <h2 className="font-semibold text-sm text-slate-800 flex items-center gap-2">
               <CalendarIcon /> Leave Summary
             </h2>
+            <button
+              onClick={() => setShowAllocModal(true)}
+              className="text-xs font-semibold text-blue-600 hover:text-blue-700 bg-blue-50 hover:bg-blue-100 px-2.5 py-1 rounded-md transition-colors"
+            >
+              Adjust Allocation
+            </button>
           </div>
           <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
+            <SummaryCard label="Base Allocation" value={`${leaveSummary?.base_allocation ?? 0} days`} color="slate" />
             <SummaryCard label="Earned Leave Balance" value={`${leaveSummary?.earned_leave_available ?? 0} days`} color="blue" />
             <SummaryCard label="Comp-Off Balance" value={`${leaveSummary?.compoff_available ?? 0} days`} color="amber" />
             <SummaryCard label="Total Available" value={`${leaveSummary?.total_available ?? 0} days`} color="blue" />
             <SummaryCard label="Worked This Month" value={`${leaveSummary?.work_logs_this_month ?? 0} days`} color="green" />
             <SummaryCard label="Earned This Month" value={`+${leaveSummary?.earned_this_month ?? 0} days`} color="green" />
-            <SummaryCard label="Pending Requests" value={leaveSummary?.pending ?? 0} color="slate" />
           </div>
         </div>
 
@@ -663,6 +701,35 @@ export default function EmployeeProfile() {
             )}
           </div>
         )}
+      </Modal>
+      
+      {/* Edit Allocation Modal */}
+      <Modal
+        isOpen={showAllocModal}
+        onClose={() => setShowAllocModal(false)}
+        title="Adjust Allocated Leave Credit"
+        size="sm"
+      >
+        <div className="space-y-4">
+          <p className="text-xs text-slate-500">
+            Enter the base/one-off leave credit allocation for <span className="font-semibold text-slate-700">{employee?.full_name}</span>. This value is added directly to their Earned Leave balance.
+          </p>
+          <div>
+            <label className="block text-xs font-semibold text-slate-600 mb-1">Base Leave Credit Allocation (Days)</label>
+            <input
+              type="number"
+              step="0.5"
+              min="0"
+              value={allocInput}
+              onChange={e => setAllocInput(e.target.value)}
+              className="w-full border border-slate-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+            />
+          </div>
+          <div className="flex justify-end gap-2 pt-2">
+            <Button variant="secondary" size="sm" onClick={() => setShowAllocModal(false)}>Cancel</Button>
+            <Button size="sm" loading={allocSaving} onClick={handleUpdateAllocation}>Save Allocation</Button>
+          </div>
+        </div>
       </Modal>
 
     </div>

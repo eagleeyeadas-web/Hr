@@ -63,6 +63,15 @@ export default function EmployeeDashboard() {
         .reduce((sum, r) => sum + (r.total_days || 0), 0)
       const compOffAvailable = Math.max(0, compOffEarned - compOffUsed)
 
+      // Fetch latest employee allocation details
+      const { data: latestEmp } = await supabase
+        .from('employees')
+        .select('leave_allocation')
+        .eq('phone', employee.phone)
+        .single()
+      
+      const baseAllocation = latestEmp?.leave_allocation ?? 0
+
       // ---- EARNED LEAVE BALANCE ----
       // Total credits from all months (ledger carries forward)
       const totalEarnedCredits = (earnedCredits || [])
@@ -71,7 +80,7 @@ export default function EmployeeDashboard() {
       const earnedLeaveUsed = leaveHistoryData
         .filter(r => r.status === 'Approved' && r.leave_type === 'Earned Leave')
         .reduce((sum, r) => sum + (r.total_days || 0), 0)
-      const earnedLeaveAvailable = Math.max(0, totalEarnedCredits - earnedLeaveUsed)
+      const earnedLeaveAvailable = Math.max(0, baseAllocation + totalEarnedCredits - earnedLeaveUsed)
 
       // ---- TOTAL AVAILABLE ----
       const totalAvailableLeave = earnedLeaveAvailable + compOffAvailable

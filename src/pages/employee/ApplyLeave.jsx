@@ -52,12 +52,21 @@ export default function ApplyLeave() {
         .reduce((sum, r) => sum + (r.total_days || 0), 0)
       const compoffRemaining = Math.max(0, compOffEarned - compOffUsed)
 
+      // Fetch latest employee allocation details
+      const { data: latestEmp } = await supabase
+        .from('employees')
+        .select('leave_allocation')
+        .eq('phone', employee.phone)
+        .single()
+      
+      const baseAllocation = latestEmp?.leave_allocation ?? 0
+
       // ---- EARNED LEAVE BALANCE ----
       const totalEarnedCredits = (earnedCredits || []).reduce((sum, row) => sum + (row.earned_credits || 0), 0)
       const earnedLeaveUsed = (leaves || [])
         .filter(r => r.status === 'Approved' && r.leave_type === 'Earned Leave')
         .reduce((sum, r) => sum + (r.total_days || 0), 0)
-      const earnedLeaveRemaining = Math.max(0, totalEarnedCredits - earnedLeaveUsed)
+      const earnedLeaveRemaining = Math.max(0, baseAllocation + totalEarnedCredits - earnedLeaveUsed)
 
       setBalance({
         compoff_remaining: compoffRemaining,
