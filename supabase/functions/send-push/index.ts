@@ -180,6 +180,13 @@ serve(async (req) => {
 
     console.log("====================================");
     console.log("📩 NOTIFICATION RECEIVED");
+    if (user_id) {
+      console.log(`[HR PUSH] Target HR User ID: ${user_id}`);
+    } else if (employee_phone) {
+      console.log(`[EMPLOYEE PUSH] Target Employee Phone: ${employee_phone}`);
+    } else {
+      console.log("[PUSH] Target Subscription ID:", subscription_id);
+    }
     console.log("HR User ID:", user_id);
     console.log("Employee Phone:", employee_phone);
     console.log("Title:", title);
@@ -323,12 +330,22 @@ serve(async (req) => {
 
     let relativeUrl = "/";
 
-    if (notificationType === "leave") {
-      relativeUrl = "/hr/leave";
-    }
-
-    if (notificationType === "permission") {
-      relativeUrl = "/hr/permissions";
+    if (employee_phone) {
+      if (notificationType === "leave") {
+        relativeUrl = "/employee/my-leave";
+      } else if (notificationType === "permission") {
+        relativeUrl = "/employee/my-permissions";
+      } else {
+        relativeUrl = "/employee/dashboard";
+      }
+    } else {
+      if (notificationType === "leave") {
+        relativeUrl = "/hr/leave";
+      } else if (notificationType === "permission") {
+        relativeUrl = "/hr/permissions";
+      } else {
+        relativeUrl = "/hr/dashboard";
+      }
     }
 
     const redirectUrl =
@@ -439,6 +456,7 @@ serve(async (req) => {
         console.log("success: true");
         console.log(`subscription_id: ${sub.id}`);
         console.log(`recipient: ${recipient}`);
+        console.log(`delivery_type: ${sub.user_id ? "HR" : "EMPLOYEE"}`);
       } catch (error: any) {
         failedCount++;
         statusCode = error?.statusCode || 500;
@@ -451,6 +469,8 @@ serve(async (req) => {
         console.log("[PUSH RESULT]");
         console.log("success: false");
         console.log(`subscription_id: ${sub.id}`);
+        console.log(`recipient: ${recipient}`);
+        console.log(`delivery_type: ${sub.user_id ? "HR" : "EMPLOYEE"}`);
         console.log(`status_code: ${statusCode}`);
         console.log(`error: ${responseBody}`);
 

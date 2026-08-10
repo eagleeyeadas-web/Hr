@@ -553,7 +553,12 @@ DECLARE
   v_request_id  BIGINT;
   v_edge_fn_url CONSTANT TEXT := 'https://qabtydijzsvfejeyrakc.supabase.co/functions/v1/send-push';
 BEGIN
-  IF NEW.user_id IS NULL THEN
+  -- Fire for HR notifications (user_id IS NOT NULL) OR
+  -- employee-targeted notifications (employee_phone IS NOT NULL AND title is NOT 'Leave Request Submitted' / 'Permission Request Submitted')
+  IF NEW.user_id IS NULL AND (
+    NEW.employee_phone IS NULL OR 
+    NEW.title IN ('Leave Request Submitted', 'Permission Request Submitted')
+  ) THEN
     RETURN NEW;
   END IF;
 
