@@ -470,7 +470,6 @@ export default function LeaveRequestsPage() {
               </div>
               <p className="text-sm text-slate-600">Worked Date: {formatDate(r.worked_date)}</p>
               <p className="text-sm text-slate-500 mt-1">Credited Days: {r.credited_days}</p>
-              <p className="text-xs text-slate-400 mt-1 truncate">{r.reason}</p>
               {r.status === 'Pending' && (
                 <div className="flex gap-2 mt-3 pt-3 border-t border-slate-50">
                   <button onClick={() => handleApproveDirectly(r, 'compoff')}
@@ -502,16 +501,15 @@ export default function LeaveRequestsPage() {
                   <th className="text-left px-5 py-3 text-xs font-semibold text-slate-500 uppercase">Employee</th>
                   <th className="text-left px-4 py-3 text-xs font-semibold text-slate-500 uppercase">Worked Date</th>
                   <th className="text-left px-4 py-3 text-xs font-semibold text-slate-500 uppercase">Credited Days</th>
-                  <th className="text-left px-4 py-3 text-xs font-semibold text-slate-500 uppercase">Reason</th>
                   <th className="text-left px-4 py-3 text-xs font-semibold text-slate-500 uppercase">Applied On</th>
                   <th className="text-left px-4 py-3 text-xs font-semibold text-slate-500 uppercase">Status</th>
                   <th className="text-right px-5 py-3 text-xs font-semibold text-slate-500 uppercase">Action</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-50">
-                {loading ? Array.from({length:3}).map((_,i) => <SkeletonRow key={i} cols={7} />) :
+                {loading ? Array.from({length:3}).map((_,i) => <SkeletonRow key={i} cols={6} />) :
                   visibleComp.length === 0 ? (
-                    <tr><td colSpan={7} className="text-center py-10 text-sm text-slate-400">No comp-off requests found</td></tr>
+                    <tr><td colSpan={6} className="text-center py-10 text-sm text-slate-400">No comp-off requests found</td></tr>
                   ) : visibleComp.map(r => (
                     <tr key={r.id} className="table-row-hover" onClick={() => {setSelectedReq(r); setSelectedType('compoff'); setShowRejectForm(false); setRejectionReason('')}}>
                       <td className="px-5 py-3">
@@ -519,7 +517,6 @@ export default function LeaveRequestsPage() {
                       </td>
                       <td className="px-4 py-3 text-slate-600">{formatDate(r.worked_date)}</td>
                       <td className="px-4 py-3 text-slate-600">{r.credited_days}</td>
-                      <td className="px-4 py-3 text-slate-500 max-w-[160px] truncate" title={r.reason}>{r.reason}</td>
                       <td className="px-4 py-3 text-slate-500 text-xs">{formatDate(r.created_at?.split('T')[0])}</td>
                       <td className="px-4 py-3"><StatusBadge status={r.status} /></td>
                       <td className="px-5 py-3 text-right" onClick={e => e.stopPropagation()}>
@@ -572,7 +569,7 @@ export default function LeaveRequestsPage() {
                   <InfoRow label="Credited Days" value={selectedReq.credited_days} />
                 </>
               )}
-              <InfoRow label="Reason" value={selectedReq.reason} />
+              {selectedType !== 'compoff' && <InfoRow label="Reason" value={selectedReq.reason} />}
               <InfoRow label="Applied On" value={formatDate(selectedReq.applied_at?.split('T')[0])} />
               <div className="flex justify-between pt-1"><span className="text-slate-500">Status</span><StatusBadge status={selectedReq.status} /></div>
               {selectedReq.rejection_reason && (
