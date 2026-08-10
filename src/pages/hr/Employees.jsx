@@ -12,7 +12,6 @@ import toast from 'react-hot-toast'
 const EMPTY_FORM = {
   full_name: '',
   phone: '',
-  leave_allocation: 1,
   company: '',
 }
 
@@ -47,11 +46,9 @@ export default function Employees() {
 
   const openAdd = () => { setForm(EMPTY_FORM); setFormError(''); setShowAddModal(true) }
   const openEdit = (emp) => {
-    const localAlloc = localStorage.getItem('leave_alloc_' + emp.phone)
     setForm({
       ...emp,
       company: emp.company || '',
-      leave_allocation: emp.leave_allocation ?? (localAlloc ? parseFloat(localAlloc) : 1)
     })
     setFormError('')
     setEditEmployee(emp)
@@ -64,36 +61,17 @@ export default function Employees() {
       setFormError('Please fill in all required fields (Name, Phone, and Company).')
       return
     }
-    const alloc = parseFloat(form.leave_allocation) || 1
-    const phoneClean = form.phone.trim()
-    localStorage.setItem('leave_alloc_' + phoneClean, alloc)
-
     setSaving(true)
     try {
       if (editEmployee) {
-        // Try updating with leave_allocation field first
-        let { error } = await supabase
+        const { error } = await supabase
           .from('employees')
           .update({
             full_name: form.full_name,
             phone: phoneClean,
-            leave_allocation: alloc,
             company: form.company
           })
           .eq('phone', editEmployee.phone)
-
-        if (error && error.code === 'PGRST204') {
-          // Fallback if column not created in Supabase schema yet
-          const fallback = await supabase
-            .from('employees')
-            .update({
-              full_name: form.full_name,
-              phone: phoneClean,
-              company: form.company
-            })
-            .eq('phone', editEmployee.phone)
-          error = fallback.error
-        }
 
         if (error) throw error
         toast.success('Employee updated successfully')
@@ -109,26 +87,13 @@ export default function Employees() {
           throw new Error('Phone number is already registered.')
         }
 
-        let { error } = await supabase
+        const { error } = await supabase
           .from('employees')
           .insert({
             full_name: form.full_name,
             phone: phoneClean,
-            leave_allocation: alloc,
             company: form.company
           })
-
-        if (error && error.code === 'PGRST204') {
-          // Fallback if column not created in Supabase schema yet
-          const fallback = await supabase
-            .from('employees')
-            .insert({
-              full_name: form.full_name,
-              phone: phoneClean,
-              company: form.company
-            })
-          error = fallback.error
-        }
 
         if (error) throw error
         toast.success('Employee added successfully')
@@ -200,7 +165,6 @@ export default function Employees() {
           </div>
         ) : (
           filtered.map(emp => {
-            const alloc = emp.leave_allocation ?? (localStorage.getItem('leave_alloc_' + emp.phone) ? parseFloat(localStorage.getItem('leave_alloc_' + emp.phone)) : 1)
             return (
               <div
                 key={emp.phone}
@@ -214,9 +178,6 @@ export default function Employees() {
                   <div className="flex-1 min-w-0">
                     <p className="font-semibold text-slate-800 truncate">{emp.full_name}</p>
                     <p className="text-sm text-slate-500 font-mono mt-0.5">{emp.phone}</p>
-                    <span className="inline-flex items-center gap-1 bg-blue-50 text-blue-700 px-2.5 py-1 rounded-md text-xs font-semibold mt-2">
-                      {alloc} {alloc === 1 ? 'day' : 'days'} / mo
-                    </span>
                   </div>
                 </div>
                 <div className="flex gap-2 mt-3 pt-3 border-t border-slate-50" onClick={e => e.stopPropagation()}>
@@ -250,7 +211,6 @@ export default function Employees() {
               <tr className="bg-slate-50 border-b border-slate-100">
                 <th className="text-left px-5 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wide">Employee</th>
                 <th className="text-left px-4 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wide">Phone</th>
-                <th className="text-left px-4 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wide">Monthly Allocation</th>
                 <th className="text-right px-5 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wide">Actions</th>
               </tr>
             </thead>
@@ -265,7 +225,6 @@ export default function Employees() {
                 </tr>
               ) : (
                 filtered.map(emp => {
-                  const alloc = emp.leave_allocation ?? (localStorage.getItem('leave_alloc_' + emp.phone) ? parseFloat(localStorage.getItem('leave_alloc_' + emp.phone)) : 1)
                   return (
                     <tr
                       key={emp.phone}
@@ -283,11 +242,6 @@ export default function Employees() {
                         </div>
                       </td>
                       <td className="px-4 py-3.5 text-slate-600 font-mono">{emp.phone}</td>
-                      <td className="px-4 py-3.5 text-slate-700 font-medium">
-                        <span className="inline-flex items-center gap-1 bg-blue-50 text-blue-700 px-2.5 py-1 rounded-md text-xs font-semibold">
-                          {alloc} {alloc === 1 ? 'day' : 'days'} / mo
-                        </span>
-                      </td>
                       <td className="px-5 py-3.5 text-right" onClick={e => e.stopPropagation()}>
                         <div className="flex items-center justify-end gap-1">
                           <button
@@ -334,7 +288,6 @@ export default function Employees() {
             <option value="Aram">Aram</option>
             <option value="Eagle Eye">Eagle Eye</option>
           </Select>
-          <Input label="Monthly Leave Allocation (Days / Month) *" type="number" step="0.5" min="0" value={form.leave_allocation} onChange={e => setForm({ ...form, leave_allocation: e.target.value })} placeholder="1" />
         </div>
         {formError && <p className="text-xs text-red-600 mt-3">{formError}</p>}
         <div className="flex flex-col-reverse sm:flex-row sm:justify-end gap-2 mt-5">

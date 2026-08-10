@@ -132,14 +132,42 @@ CREATE TABLE IF NOT EXISTS public.compoff_requests (
   id              UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
   employee_phone  TEXT NOT NULL REFERENCES public.employees(phone) ON DELETE CASCADE,
   worked_date     DATE NOT NULL,
-  reason          TEXT NOT NULL,
+  reason          TEXT,
   status          TEXT NOT NULL CHECK (status IN ('Pending', 'Approved', 'Rejected')) DEFAULT 'Pending',
   credited_days   INTEGER NOT NULL DEFAULT 1,
   approved_by     UUID REFERENCES auth.users(id) ON DELETE SET NULL,
   approved_at     TIMESTAMPTZ,
   created_at      TIMESTAMPTZ DEFAULT NOW(),
-  updated_at      TIMESTAMPTZ DEFAULT NOW()
+  updated_at      TIMESTAMPTZ DEFAULT NOW(),
+  CONSTRAINT unique_employee_worked_date UNIQUE (employee_phone, worked_date)
 );
+
+-- ============================================================
+-- 5d. WORK LOGS
+-- ============================================================
+CREATE TABLE IF NOT EXISTS public.work_logs (
+  id             UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  employee_phone TEXT NOT NULL REFERENCES public.employees(phone) ON DELETE CASCADE,
+  work_date      DATE NOT NULL,
+  created_by     UUID REFERENCES auth.users(id) ON DELETE SET NULL,
+  created_at     TIMESTAMPTZ DEFAULT NOW(),
+  CONSTRAINT unique_employee_work_date UNIQUE (employee_phone, work_date)
+);
+
+-- ============================================================
+-- 5e. EARNED LEAVE CREDITS
+-- ============================================================
+CREATE TABLE IF NOT EXISTS public.earned_leave_credits (
+  id             UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  employee_phone TEXT NOT NULL REFERENCES public.employees(phone) ON DELETE CASCADE,
+  credit_month   TEXT NOT NULL,
+  eligible_days  INTEGER NOT NULL DEFAULT 0,
+  earned_credits INTEGER NOT NULL DEFAULT 0,
+  created_at     TIMESTAMPTZ DEFAULT NOW(),
+  updated_at     TIMESTAMPTZ DEFAULT NOW(),
+  CONSTRAINT unique_employee_month_credit UNIQUE (employee_phone, credit_month)
+);
+
 
 -- ============================================================
 -- INDEXES for performance
@@ -440,6 +468,8 @@ ALTER TABLE public.leave_requests ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.permission_requests ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.notifications ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.audit_logs ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.work_logs ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.earned_leave_credits ENABLE ROW LEVEL SECURITY;
 
 -- ============================================================
 -- RLS: PROFILES
@@ -709,6 +739,82 @@ GRANT EXECUTE ON FUNCTION approve_permission_request(UUID, UUID) TO authenticate
 GRANT EXECUTE ON FUNCTION reject_permission_request(UUID, UUID, TEXT) TO authenticated;
 GRANT EXECUTE ON FUNCTION get_employee_leave_summary(UUID) TO authenticated;
 GRANT EXECUTE ON FUNCTION get_employee_permission_summary(UUID) TO authenticated;
+
+-- ============================================================
+-- RLS: WORK LOGS & EARNED LEAVE CREDITS
+-- ============================================================
+DROP POLICY IF EXISTS "HR can manage work_logs" ON public.work_logs;
+CREATE POLICY "HR can manage work_logs" ON public.work_logs
+  FOR ALL USING (
+    EXISTS (SELECT 1 FROM public.profiles WHERE id = auth.uid() AND role IN ('admin', 'hr'))
+  );
+
+DROP POLICY IF EXISTS "Employees can view own work_logs" ON public.work_logs;
+CREATE POLICY "Employees can view own work_logs" ON public.work_logs
+  FOR SELECT USING (
+    employee_phone IN (
+      SELECT phone FROM public.employees WHERE phone = work_logs.employee_phone
+    )
+  );
+
+DROP POLICY IF EXISTS "HR can manage earned_leave_credits" ON public.earned_leave_credits;
+CREATE POLICY "HR can manage earned_leave_credits" ON public.earned_leave_credits
+  FOR ALL USING (
+    EXISTS (SELECT 1 FROM public.profiles WHERE id = auth.uid() AND role IN ('admin', 'hr'))
+  );
+
+DROP POLICY IF EXISTS "Employees can view own earned_leave_credits" ON public.earned_leave_credits;
+CREATE POLICY "Employees can view own earned_leave_credits" ON public.earned_leave_credits
+  FOR SELECT USING (
+    employee_phone IN (
+      SELECT phone FROM public.employees WHERE phone = earned_leave_credits.employee_phone
+    )
+  );
+
+-- ============================================================
+-- CALCULATE EARNED LEAVE FUNCTION & TRIGGER
+-- ============================================================
+CREATE OR REPLACE FUNCTION public.calculate_earned_leave(p_phone TEXT, p_month TEXT)
+RETURNS void AS $$
+DECLARE
+  v_eligible_days INTEGER;
+  v_earned INTEGER;
+BEGIN
+  SELECT COUNT(*) INTO v_eligible_days
+  FROM public.work_logs
+  WHERE employee_phone = p_phone
+    AND TO_CHAR(work_date, 'YYYY-MM') = p_month;
+  
+  v_earned := FLOOR(v_eligible_days::NUMERIC / 15);
+  
+  INSERT INTO public.earned_leave_credits (employee_phone, credit_month, eligible_days, earned_credits)
+  VALUES (p_phone, p_month, v_eligible_days, v_earned)
+  ON CONFLICT (employee_phone, credit_month)
+  DO UPDATE SET
+    eligible_days  = EXCLUDED.eligible_days,
+    earned_credits = EXCLUDED.earned_credits,
+    updated_at     = NOW();
+END;
+$$ LANGUAGE plpgsql SECURITY DEFINER;
+
+GRANT EXECUTE ON FUNCTION public.calculate_earned_leave(TEXT, TEXT) TO authenticated;
+
+CREATE OR REPLACE FUNCTION public.trigger_recalculate_earned_leave()
+RETURNS TRIGGER AS $$
+BEGIN
+  IF TG_OP = 'INSERT' THEN
+    PERFORM public.calculate_earned_leave(NEW.employee_phone, TO_CHAR(NEW.work_date, 'YYYY-MM'));
+  ELSIF TG_OP = 'DELETE' THEN
+    PERFORM public.calculate_earned_leave(OLD.employee_phone, TO_CHAR(OLD.work_date, 'YYYY-MM'));
+  END IF;
+  RETURN COALESCE(NEW, OLD);
+END;
+$$ LANGUAGE plpgsql SECURITY DEFINER;
+
+DROP TRIGGER IF EXISTS trg_work_logs_recalculate ON public.work_logs;
+CREATE TRIGGER trg_work_logs_recalculate
+  AFTER INSERT OR DELETE ON public.work_logs
+  FOR EACH ROW EXECUTE FUNCTION public.trigger_recalculate_earned_leave();
 
 -- ============================================================
 -- SEED: Set first admin user role
