@@ -116,7 +116,7 @@ export function AuthProvider({ children }) {
     return data
   }
 
-  const signUpEmployee = async (name, phone, company) => {
+  const signUpEmployee = async (name, phone, company, employeeType) => {
     // Check if phone already registered
     const { data: existing } = await supabase
       .from('employees')
@@ -133,7 +133,8 @@ export function AuthProvider({ children }) {
       .insert({
         full_name: name,
         phone: phone.trim(),
-        company: company
+        company: company,
+        employee_type: employeeType
       })
       .select()
       .single()

@@ -9,7 +9,7 @@ import toast from 'react-hot-toast'
 export default function SignupPage() {
   const { signUpEmployee } = useAuth()
   const navigate = useNavigate()
-  const [form, setForm] = useState({ name: '', phone: '', company: '' })
+  const [form, setForm] = useState({ name: '', phone: '', company: '', employeeType: '' })
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState('')
 
@@ -27,9 +27,14 @@ export default function SignupPage() {
       return
     }
 
+    if (!form.employeeType) {
+      setError('Please select an employee type.')
+      return
+    }
+
     setLoading(true)
     try {
-      await signUpEmployee(form.name, form.phone, form.company)
+      await signUpEmployee(form.name, form.phone, form.company, form.employeeType)
       toast.success('Registration successful!')
       navigate('/employee/dashboard')
     } catch (err) {
@@ -99,6 +104,22 @@ export default function SignupPage() {
                 <option value="" disabled>Select Company</option>
                 <option value="Aram">Aram</option>
                 <option value="Eagle Eye">Eagle Eye</option>
+              </Select>
+            </div>
+
+            {/* Employee Type */}
+            <div className="relative">
+              <User size={16} className="absolute left-3 top-9 text-slate-400" />
+              <Select
+                label="Employee Type *"
+                labelClassName="text-slate-300"
+                value={form.employeeType}
+                onChange={(e) => setForm({ ...form, employeeType: e.target.value })}
+                className="bg-white/10 border-white/20 text-white pl-10 [&>option]:bg-slate-900 [&>option]:text-white"
+              >
+                <option value="" disabled>Select Employee Type</option>
+                <option value="Senior">Senior</option>
+                <option value="Junior">Junior</option>
               </Select>
             </div>
 

@@ -38,6 +38,7 @@ CREATE TABLE public.employees (
   status            TEXT NOT NULL CHECK (status IN ('active', 'inactive')) DEFAULT 'active',
   profile_photo_url TEXT,
   company           TEXT,
+  employee_type     TEXT CHECK (employee_type IS NULL OR employee_type IN ('Senior', 'Junior')),
   created_at        TIMESTAMPTZ DEFAULT NOW(),
   updated_at        TIMESTAMPTZ DEFAULT NOW()
 );
