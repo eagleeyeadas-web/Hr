@@ -137,13 +137,19 @@ export default function Attendance() {
   const handlePrevDay = () => {
     const prev = new Date(dateObj)
     prev.setDate(prev.getDate() - 1)
-    setMarkDate(prev.toISOString().slice(0, 10))
+    const y = prev.getFullYear()
+    const m = String(prev.getMonth() + 1).padStart(2, '0')
+    const d = String(prev.getDate()).padStart(2, '0')
+    setMarkDate(`${y}-${m}-${d}`)
   }
 
   const handleNextDay = () => {
     const next = new Date(dateObj)
     next.setDate(next.getDate() + 1)
-    setMarkDate(next.toISOString().slice(0, 10))
+    const y = next.getFullYear()
+    const m = String(next.getMonth() + 1).padStart(2, '0')
+    const d = String(next.getDate()).padStart(2, '0')
+    setMarkDate(`${y}-${m}-${d}`)
   }
 
   // BULK ACTIONS
