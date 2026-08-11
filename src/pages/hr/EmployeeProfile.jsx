@@ -94,12 +94,13 @@ export default function EmployeeProfile() {
       .select('*')
       .eq('employee_phone', employeePhone)
 
-    // Fetch work logs
+    // Fetch attendance logs with status 'PRESENT' (representing work logs)
     const { data: wl } = await supabase
-      .from('work_logs')
-      .select('*')
+      .from('attendance')
+      .select('*, work_date:attendance_date')
       .eq('employee_phone', employeePhone)
-      .order('work_date', { ascending: false })
+      .eq('status', 'PRESENT')
+      .order('attendance_date', { ascending: false })
     setWorkLogs(wl || [])
 
     // ---- COMP-OFF BALANCE ----
@@ -234,11 +235,12 @@ export default function EmployeeProfile() {
     if (!workLogDate) { toast.error('Please select a date.'); return }
     setWorkLogLoading(true)
     try {
-      const { error } = await supabase.from('work_logs').insert({
+      const { error } = await supabase.from('attendance').upsert({
         employee_phone: employeePhone,
-        work_date: workLogDate,
+        attendance_date: workLogDate,
+        status: 'PRESENT',
         created_by: user.id
-      })
+      }, { onConflict: 'employee_phone,attendance_date' })
       if (error) {
         if (error.code === '23505') throw new Error('Work log already exists for this date.')
         throw error
@@ -253,10 +255,14 @@ export default function EmployeeProfile() {
     }
   }
 
-  const handleDeleteWorkLog = async (logId) => {
+  const handleDeleteWorkLog = async (dateStr) => {
     setWorkLogLoading(true)
     try {
-      const { error } = await supabase.from('work_logs').delete().eq('id', logId)
+      const { error } = await supabase
+        .from('attendance')
+        .delete()
+        .eq('employee_phone', employeePhone)
+        .eq('attendance_date', dateStr)
       if (error) throw error
       toast.success('Work log removed')
       fetchAll()
@@ -658,13 +664,13 @@ export default function EmployeeProfile() {
                         const d = wl.work_date ? new Date(wl.work_date + 'T00:00:00') : null
                         const dayLabel = d ? ['Sun','Mon','Tue','Wed','Thu','Fri','Sat'][d.getDay()] : '—'
                         return (
-                          <tr key={wl.id} className="hover:bg-slate-50">
+                          <tr key={wl.work_date} className="hover:bg-slate-50">
                             <td className="py-2 px-3 font-medium text-slate-800">{formatDate(wl.work_date)}</td>
                             <td className="py-2 px-3 text-slate-500 text-xs">{dayLabel}</td>
                             <td className="py-2 px-3 text-slate-500 text-xs">{wl.work_date?.slice(0, 7)}</td>
                             <td className="py-2 px-3 text-right">
                               <button
-                                onClick={() => handleDeleteWorkLog(wl.id)}
+                                onClick={() => handleDeleteWorkLog(wl.work_date)}
                                 className="text-red-400 hover:text-red-600 p-1 rounded transition-colors"
                                 title="Remove log"
                               >

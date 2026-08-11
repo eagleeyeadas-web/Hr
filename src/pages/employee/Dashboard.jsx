@@ -50,14 +50,22 @@ export default function EmployeeDashboard() {
         .select('credit_month, monthly_credit_hours')
         .eq('employee_phone', employee.phone)
 
-      // Fetch current month's work logs
+      // Fetch current month's attendance logs (PRESENT)
       const currentMonthStr = new Date().toISOString().slice(0, 7)
       const { data: currentMonthLogs } = await supabase
-        .from('work_logs')
-        .select('work_date')
+        .from('attendance')
+        .select('work_date:attendance_date')
         .eq('employee_phone', employee.phone)
-        .gte('work_date', `${currentMonthStr}-01`)
-        .lte('work_date', `${currentMonthStr}-31`)
+        .eq('status', 'PRESENT')
+        .gte('attendance_date', `${currentMonthStr}-01`)
+        .lte('attendance_date', `${currentMonthStr}-31`)
+
+      // Fetch current month's government holidays
+      const { data: hols } = await supabase
+        .from('government_holidays')
+        .select('holiday_date')
+        .gte('holiday_date', `${currentMonthStr}-01`)
+        .lte('holiday_date', `${currentMonthStr}-31`)
 
       const leaveHistoryData = leaves || []
       const thisMonthLogs = currentMonthLogs || []
@@ -96,7 +104,16 @@ export default function EmployeeDashboard() {
       const pendingLeaveCount = leaveHistoryData.filter(r => r.status === 'Pending').length
 
       // ---- CURRENT MONTH PROGRESS ----
-      const workedDaysThisMonth = thisMonthLogs.length
+      const holidaySet = new Set((hols || []).map(h => h.holiday_date))
+      const eligibleLogs = thisMonthLogs.filter(log => {
+        const d = new Date(log.work_date + 'T00:00:00')
+        const dow = d.getDay() // 0: Sun, 6: Sat
+        const isHoliday = holidaySet.has(log.work_date)
+        const isWeeklyOff = dow === 0 || (dow === 6 && employee.employee_type === 'Senior')
+        return !isHoliday && !isWeeklyOff
+      })
+
+      const workedDaysThisMonth = eligibleLogs.length
       const earnedThisMonth = Math.floor(workedDaysThisMonth / 15)
       const thisMonthLedger = (earnedCredits || []).find(r => r.credit_month === currentMonthStr)
 
