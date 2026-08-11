@@ -50,13 +50,12 @@ export default function EmployeeDashboard() {
         .select('credit_month, monthly_credit_hours')
         .eq('employee_phone', employee.phone)
 
-      // Fetch current month's attendance logs (PRESENT)
+      // Fetch current month's attendance logs (both PRESENT and ABSENT)
       const currentMonthStr = new Date().toISOString().slice(0, 7)
-      const { data: currentMonthLogs } = await supabase
+      const { data: currentMonthAtt } = await supabase
         .from('attendance')
-        .select('work_date:attendance_date')
+        .select('attendance_date, status')
         .eq('employee_phone', employee.phone)
-        .eq('status', 'PRESENT')
         .gte('attendance_date', `${currentMonthStr}-01`)
         .lte('attendance_date', `${currentMonthStr}-31`)
 
@@ -68,7 +67,10 @@ export default function EmployeeDashboard() {
         .lte('holiday_date', `${currentMonthStr}-31`)
 
       const leaveHistoryData = leaves || []
-      const thisMonthLogs = currentMonthLogs || []
+      const attendanceList = currentMonthAtt || []
+      const thisMonthLogs = attendanceList
+        .filter(a => a.status === 'PRESENT')
+        .map(a => ({ work_date: a.attendance_date }))
 
       // ---- COMP-OFF BALANCE ----
       const compOffEarned = (compoffs || [])
@@ -163,15 +165,23 @@ export default function EmployeeDashboard() {
       const days = []
       for (let d = 1; d <= daysCount; d++) {
         const dateStr = `${yearVal}-${String(monthIndexVal + 1).padStart(2, '0')}-${String(d).padStart(2, '0')}`
-        const isPresent = thisMonthLogs.some(log => log.work_date === dateStr)
+        const attRecord = attendanceList.find(a => a.attendance_date === dateStr)
+        const isHoliday = holidaySet.has(dateStr)
         const isLeave = leaveHistoryData.some(req => {
           if (req.status !== 'Approved') return false
           return dateStr >= req.start_date && dateStr <= req.end_date
         })
         
         let status = 'none'
-        if (isPresent) status = 'present'
-        else if (isLeave) status = 'leave'
+        if (isHoliday) {
+          status = 'holiday'
+        } else if (attRecord?.status === 'PRESENT') {
+          status = 'present'
+        } else if (isLeave) {
+          status = 'leave'
+        } else if (attRecord?.status === 'ABSENT') {
+          status = 'absent'
+        }
         
         days.push({ dayNum: d, dateStr, status })
       }
@@ -275,8 +285,16 @@ export default function EmployeeDashboard() {
               <span className="text-slate-500 font-medium">Present ({attendanceDays.filter(d => d.status === 'present').length})</span>
             </div>
             <div className="flex items-center gap-1.5">
+              <span className="w-3 h-3 rounded bg-red-600 inline-block" />
+              <span className="text-slate-500 font-medium">Absent ({attendanceDays.filter(d => d.status === 'absent').length})</span>
+            </div>
+            <div className="flex items-center gap-1.5">
               <span className="w-3 h-3 rounded bg-rose-500 inline-block" />
               <span className="text-slate-500 font-medium">On Leave ({attendanceDays.filter(d => d.status === 'leave').length})</span>
+            </div>
+            <div className="flex items-center gap-1.5">
+              <span className="w-3 h-3 rounded bg-indigo-600 inline-block" />
+              <span className="text-slate-500 font-medium">Holiday ({attendanceDays.filter(d => d.status === 'holiday').length})</span>
             </div>
             <div className="flex items-center gap-1.5">
               <span className="w-3 h-3 rounded bg-slate-200 inline-block" />
@@ -303,14 +321,24 @@ export default function EmployeeDashboard() {
             {attendanceDays.map((item) => {
               const statusColors = {
                 present: 'bg-emerald-500 text-white border-emerald-500 shadow-sm shadow-emerald-100',
+                absent: 'bg-red-600 text-white border-red-600 shadow-sm shadow-red-100',
                 leave: 'bg-rose-500 text-white border-rose-500 shadow-sm shadow-rose-100',
+                holiday: 'bg-indigo-600 text-white border-indigo-600 shadow-sm shadow-indigo-100',
                 none: 'bg-white text-slate-400 border-slate-200/60 hover:bg-slate-100/30',
+              }
+
+              const statusLabels = {
+                present: 'Present',
+                absent: 'Absent',
+                leave: 'On Leave',
+                holiday: 'Government Holiday',
+                none: 'No Log / Off'
               }
 
               return (
                 <div
                   key={item.dayNum}
-                  title={`${item.dateStr} (${item.status === 'present' ? 'Present' : item.status === 'leave' ? 'On Leave' : 'No Log'})`}
+                  title={`${item.dateStr} (${statusLabels[item.status]})`}
                   className={`aspect-square flex items-center justify-center rounded-lg border text-xs font-bold select-none transition-all ${statusColors[item.status]}`}
                 >
                   <span>{item.dayNum}</span>
