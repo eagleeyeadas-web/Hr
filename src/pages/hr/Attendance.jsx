@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback, useMemo } from 'react'
+import { useState, useEffect, useCallback, useMemo, useRef } from 'react'
 import {
   Calendar, Search, Check, CheckCircle, AlertCircle,
   Clock, ArrowLeft, Users, ChevronLeft, ChevronRight, Info, ShieldAlert, RotateCcw
@@ -12,6 +12,7 @@ import { Modal } from '../../components/ui/Modal'
 import toast from 'react-hot-toast'
 
 export default function Attendance() {
+  const dateInputRef = useRef(null)
   const [markDate, setMarkDate] = useState(new Date().toISOString().slice(0, 10))
   const [search, setSearch] = useState('')
   const [typeFilter, setTypeFilter] = useState('')
@@ -533,12 +534,17 @@ export default function Attendance() {
           <button onClick={handlePrevDay} className="p-2.5 rounded-xl border border-slate-200 hover:bg-slate-50 transition-colors">
             <ChevronLeft size={18} />
           </button>
-          <div className="flex items-center gap-2 border border-slate-200 rounded-xl px-4 py-2.5 bg-slate-50/50 hover:bg-slate-50 transition-colors">
+          <div 
+            onClick={() => dateInputRef.current?.showPicker?.()}
+            className="flex items-center gap-2 border border-slate-200 rounded-xl px-4 py-2.5 bg-slate-50/50 hover:bg-slate-50 transition-colors cursor-pointer"
+          >
             <Calendar size={16} className="text-blue-600" />
             <input
+              ref={dateInputRef}
               type="date"
               value={markDate}
               onChange={e => setMarkDate(e.target.value)}
+              onClick={e => e.stopPropagation()}
               className="bg-transparent text-sm font-semibold focus:outline-none text-slate-800 cursor-pointer"
             />
           </div>
