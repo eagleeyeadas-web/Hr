@@ -14,7 +14,7 @@ import toast from 'react-hot-toast'
 export default function Attendance() {
   const [markDate, setMarkDate] = useState(new Date().toISOString().slice(0, 10))
   const [search, setSearch] = useState('')
-  const [companyFilter, setCompanyFilter] = useState('')
+  const [typeFilter, setTypeFilter] = useState('')
   const [employees, setEmployees] = useState([])
   const [attendance, setAttendance] = useState([])
   const [holidays, setHolidays] = useState([])
@@ -480,14 +480,14 @@ export default function Attendance() {
     }
   }
 
-  // Filter employees matching search and company
+  // Filter employees matching search and type
   const filteredEmployees = useMemo(() => {
     return employees.filter(emp => {
       const nameMatch = !search || emp.full_name?.toLowerCase().includes(search.toLowerCase()) || emp.phone?.includes(search)
-      const companyMatch = !companyFilter || emp.company === companyFilter
-      return nameMatch && companyMatch
+      const typeMatch = !typeFilter || emp.employee_type === typeFilter
+      return nameMatch && typeMatch
     })
-  }, [employees, search, companyFilter])
+  }, [employees, search, typeFilter])
 
   // Count summaries
   const summaries = useMemo(() => {
@@ -638,13 +638,13 @@ export default function Attendance() {
         </div>
         <div className="w-full sm:w-56">
           <select
-            value={companyFilter}
-            onChange={e => setCompanyFilter(e.target.value)}
+            value={typeFilter}
+            onChange={e => setTypeFilter(e.target.value)}
             className="w-full px-4 py-2.5 text-sm border border-slate-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-blue-100 focus:border-blue-400 text-slate-700 bg-white"
           >
-            <option value="">All Companies</option>
-            <option value="Aram">Aram</option>
-            <option value="Eagle Eye">Eagle Eye</option>
+            <option value="">All Types</option>
+            <option value="Senior">Senior</option>
+            <option value="Junior">Junior</option>
           </select>
         </div>
       </div>
