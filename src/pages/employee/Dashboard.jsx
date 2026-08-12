@@ -50,14 +50,14 @@ export default function EmployeeDashboard() {
         .select('credit_month, monthly_credit_hours')
         .eq('employee_phone', employee.phone)
 
-      // Fetch current month's attendance logs (both PRESENT and ABSENT)
-      const currentMonthStr = new Date().toISOString().slice(0, 7)
-      const { data: currentMonthAtt } = await supabase
+      // Fetch all attendance logs for the employee
+      const { data: allAtt } = await supabase
         .from('attendance')
-        .select('attendance_date, status')
+        .select('*')
         .eq('employee_phone', employee.phone)
-        .gte('attendance_date', `${currentMonthStr}-01`)
-        .lte('attendance_date', `${currentMonthStr}-31`)
+
+      const currentMonthStr = new Date().toISOString().slice(0, 7)
+      const attendanceList = (allAtt || []).filter(a => a.attendance_date.startsWith(currentMonthStr))
 
       // Fetch current month's government holidays
       const { data: hols } = await supabase
@@ -67,19 +67,64 @@ export default function EmployeeDashboard() {
         .lte('holiday_date', `${currentMonthStr}-31`)
 
       const leaveHistoryData = leaves || []
-      const attendanceList = currentMonthAtt || []
       const thisMonthLogs = attendanceList
         .filter(a => a.status === 'PRESENT')
         .map(a => ({ work_date: a.attendance_date }))
+
+      // Helper to calculate historical used leaves securely to prevent double-counting
+      const calculateHistoricalUsedLeaves = (leaves, attendance) => {
+        const compOffUsedDates = new Set()
+        const earnedLeaveUsedDates = new Set()
+        
+        // 1. Process approved leave requests
+        (leaves || []).forEach(req => {
+          if (req.status !== 'Approved') return
+          let curr = new Date(req.start_date + 'T00:00:00')
+          const end = new Date(req.end_date + 'T00:00:00')
+          while (curr <= end) {
+            const dateStr = curr.toISOString().slice(0, 10)
+            if (req.leave_type === 'Comp-Off') {
+              compOffUsedDates.add(dateStr)
+            } else if (req.leave_type === 'Earned Leave') {
+              earnedLeaveUsedDates.add(dateStr)
+            }
+            curr.setDate(curr.getDate() + 1)
+          }
+        })
+
+        // 2. Process manual LEAVE records in attendance
+        (attendance || []).forEach(att => {
+          if (att.status !== 'LEAVE') return
+          const dateStr = att.attendance_date
+          if (compOffUsedDates.has(dateStr) || earnedLeaveUsedDates.has(dateStr)) return
+          
+          // Skip if covered by other approved leave types (Casual, Sick, Emergency, etc.)
+          const hasOtherLeave = (leaves || []).some(req => 
+            req.status === 'Approved' && 
+            req.leave_type !== 'Comp-Off' && 
+            req.leave_type !== 'Earned Leave' &&
+            dateStr >= req.start_date && 
+            dateStr <= req.end_date
+          )
+          if (hasOtherLeave) return
+
+          // Default manual LEAVE status to consume Earned Leave
+          earnedLeaveUsedDates.add(dateStr)
+        })
+
+        return {
+          compOffUsed: compOffUsedDates.size,
+          earnedLeaveUsed: earnedLeaveUsedDates.size
+        }
+      }
+
+      const usedBalances = calculateHistoricalUsedLeaves(leaveHistoryData, allAtt)
 
       // ---- COMP-OFF BALANCE ----
       const compOffEarned = (compoffs || [])
         .filter(r => r.status === 'Approved')
         .reduce((sum, r) => sum + (r.credited_days || 1), 0)
-      const compOffUsed = leaveHistoryData
-        .filter(r => r.status === 'Approved' && r.leave_type === 'Comp-Off')
-        .reduce((sum, r) => sum + (r.total_days || 0), 0)
-      const compOffAvailable = Math.max(0, compOffEarned - compOffUsed)
+      const compOffAvailable = Math.max(0, compOffEarned - usedBalances.compOffUsed)
 
       // Fetch latest employee allocation details
       const { data: latestEmp } = await supabase
@@ -94,10 +139,7 @@ export default function EmployeeDashboard() {
       // ---- EARNED LEAVE BALANCE ----
       const totalEarnedCredits = (earnedCredits || [])
         .reduce((sum, row) => sum + (row.earned_credits || 0), 0)
-      const earnedLeaveUsed = leaveHistoryData
-        .filter(r => r.status === 'Approved' && r.leave_type === 'Earned Leave')
-        .reduce((sum, r) => sum + (r.total_days || 0), 0)
-      const earnedLeaveAvailable = Math.max(0, baseAllocation + totalEarnedCredits - earnedLeaveUsed)
+      const earnedLeaveAvailable = Math.max(0, baseAllocation + totalEarnedCredits - usedBalances.earnedLeaveUsed)
 
       // ---- TOTAL AVAILABLE ----
       const totalAvailableLeave = earnedLeaveAvailable + compOffAvailable
@@ -177,10 +219,10 @@ export default function EmployeeDashboard() {
           status = 'holiday'
         } else if (attRecord?.status === 'PRESENT') {
           status = 'present'
-        } else if (isLeave) {
+        } else if (isLeave || attRecord?.status === 'LEAVE') {
           status = 'leave'
-        } else if (attRecord?.status === 'ABSENT') {
-          status = 'absent'
+        } else if (attRecord?.status === 'LOP') {
+          status = 'lop'
         }
         
         days.push({ dayNum: d, dateStr, status })
@@ -286,7 +328,7 @@ export default function EmployeeDashboard() {
             </div>
             <div className="flex items-center gap-1.5">
               <span className="w-3 h-3 rounded bg-red-600 inline-block" />
-              <span className="text-slate-500 font-medium">Absent ({attendanceDays.filter(d => d.status === 'absent').length})</span>
+              <span className="text-slate-500 font-medium">LOP ({attendanceDays.filter(d => d.status === 'lop').length})</span>
             </div>
             <div className="flex items-center gap-1.5">
               <span className="w-3 h-3 rounded bg-rose-500 inline-block" />
@@ -321,7 +363,7 @@ export default function EmployeeDashboard() {
             {attendanceDays.map((item) => {
               const statusColors = {
                 present: 'bg-emerald-500 text-white border-emerald-500 shadow-sm shadow-emerald-100',
-                absent: 'bg-red-600 text-white border-red-600 shadow-sm shadow-red-100',
+                lop: 'bg-red-600 text-white border-red-600 shadow-sm shadow-red-100',
                 leave: 'bg-rose-500 text-white border-rose-500 shadow-sm shadow-rose-100',
                 holiday: 'bg-indigo-600 text-white border-indigo-600 shadow-sm shadow-indigo-100',
                 none: 'bg-white text-slate-400 border-slate-200/60 hover:bg-slate-100/30',
@@ -329,7 +371,7 @@ export default function EmployeeDashboard() {
 
               const statusLabels = {
                 present: 'Present',
-                absent: 'Absent',
+                lop: 'Loss of Pay',
                 leave: 'On Leave',
                 holiday: 'Government Holiday',
                 none: 'No Log / Off'

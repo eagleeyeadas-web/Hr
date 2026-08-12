@@ -21,24 +21,19 @@ export default function PermissionRequest() {
   useEffect(() => {
     if (!employee) return
     const fetchBalance = async () => {
+      // Find which month to calculate balance for
+      const targetMonth = form.permission_date ? form.permission_date.slice(0, 7) : new Date().toISOString().slice(0, 7)
+
       // Ensure credits are seeded
       await supabase.rpc('ensure_permission_credits', { p_phone: employee.phone })
 
-      // Fetch credits ledger
-      const { data: credits } = await supabase
-        .from('permission_credits')
-        .select('monthly_credit_hours')
-        .eq('employee_phone', employee.phone)
-
-      // Fetch approved permissions of the current month
-      const currentMonthStr = new Date().toISOString().slice(0, 7)
+      // Fetch approved permissions of the target month
       const { data: perms } = await supabase
         .from('permission_requests')
         .select('duration_minutes')
         .eq('employee_phone', employee.phone)
         .eq('status', 'Approved')
-        .gte('permission_date', `${currentMonthStr}-01`)
-        .lte('permission_date', `${currentMonthStr}-31`)
+        .like('permission_date', `${targetMonth}%`)
 
       // Fetch latest employee allocation details
       const { data: latestEmp } = await supabase
@@ -54,11 +49,12 @@ export default function PermissionRequest() {
       
       setBalance({
         available_hours: Math.max(0, basePermAllocation + 2.0 - totalUsedHours),
-        available_minutes: Math.max(0, (basePermAllocation * 60) + 120 - totalUsedMinutes)
+        available_minutes: Math.max(0, (basePermAllocation * 60) + 120 - totalUsedMinutes),
+        targetMonthLabel: new Date(targetMonth + '-15').toLocaleString('default', { month: 'long', year: 'numeric' })
       })
     }
     fetchBalance()
-  }, [employee, submitted])
+  }, [employee, form.permission_date, submitted])
 
   const duration = calculateDurationMinutes(form.start_time, form.end_time)
   const validDuration = form.start_time && form.end_time && form.start_time < form.end_time
@@ -209,7 +205,7 @@ export default function PermissionRequest() {
           <form onSubmit={handleSubmit} className="p-6 space-y-4">
             {balance && (
               <div className="bg-blue-50 border border-blue-100 rounded-lg px-3 py-2 text-xs flex justify-between items-center">
-                <span className="text-slate-500">Available Balance:</span>
+                <span className="text-slate-500">Available Balance ({balance.targetMonthLabel}):</span>
                 <span className="font-bold text-blue-700">{balance.available_hours.toFixed(1)} hours</span>
               </div>
             )}

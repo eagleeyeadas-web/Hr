@@ -152,6 +152,53 @@ export default function Attendance() {
     setMarkDate(`${y}-${m}-${d}`)
   }
 
+  // Helper to calculate historical used leaves securely to prevent double-counting
+  const calculateHistoricalUsedLeaves = (leaves, attendance) => {
+    const compOffUsedDates = new Set()
+    const earnedLeaveUsedDates = new Set()
+    
+    // 1. Process approved leave requests
+    (leaves || []).forEach(req => {
+      if (req.status !== 'Approved') return
+      let curr = new Date(req.start_date + 'T00:00:00')
+      const end = new Date(req.end_date + 'T00:00:00')
+      while (curr <= end) {
+        const dateStr = curr.toISOString().slice(0, 10)
+        if (req.leave_type === 'Comp-Off') {
+          compOffUsedDates.add(dateStr)
+        } else if (req.leave_type === 'Earned Leave') {
+          earnedLeaveUsedDates.add(dateStr)
+        }
+        curr.setDate(curr.getDate() + 1)
+      }
+    })
+
+    // 2. Process manual LEAVE records in attendance
+    (attendance || []).forEach(att => {
+      if (att.status !== 'LEAVE') return
+      const dateStr = att.attendance_date
+      if (compOffUsedDates.has(dateStr) || earnedLeaveUsedDates.has(dateStr)) return
+      
+      // Skip if covered by other approved leave types (Casual, Sick, Emergency, etc.)
+      const hasOtherLeave = (leaves || []).some(req => 
+        req.status === 'Approved' && 
+        req.leave_type !== 'Comp-Off' && 
+        req.leave_type !== 'Earned Leave' &&
+        dateStr >= req.start_date && 
+        dateStr <= req.end_date
+      )
+      if (hasOtherLeave) return
+
+      // Default manual LEAVE status to consume Earned Leave
+      earnedLeaveUsedDates.add(dateStr)
+    })
+
+    return {
+      compOffUsed: compOffUsedDates.size,
+      earnedLeaveUsed: earnedLeaveUsedDates.size
+    }
+  }
+
   // BULK ACTIONS
   const handleMarkAllPresent = async () => {
     const confirm = window.confirm(`Are you sure you want to mark all eligible employees as PRESENT on ${markDate}? Approved leaves will be skipped.`)
@@ -191,8 +238,8 @@ export default function Attendance() {
     }
   }
 
-  const handleMarkAllAbsent = async () => {
-    const confirm = window.confirm(`Are you sure you want to mark all eligible employees as ABSENT on ${markDate}? Approved leaves will be skipped.`)
+  const handleMarkAllLOP = async () => {
+    const confirm = window.confirm(`Are you sure you want to mark all eligible employees as LOP on ${markDate}? Approved leaves will be skipped.`)
     if (!confirm) return
 
     setActionLoading(true)
@@ -203,7 +250,7 @@ export default function Attendance() {
         records.push({
           employee_phone: emp.phone,
           attendance_date: markDate,
-          status: 'ABSENT'
+          status: 'LOP'
         })
       })
 
@@ -218,11 +265,11 @@ export default function Attendance() {
         .upsert(records, { onConflict: 'employee_phone,attendance_date' })
 
       if (error) throw error
-      toast.success(`Successfully marked all as ABSENT!`)
+      toast.success(`Successfully marked all as LOP!`)
       fetchData()
     } catch (err) {
       console.error(err)
-      toast.error('Failed to mark employees absent.')
+      toast.error('Failed to mark employees LOP.')
     } finally {
       setActionLoading(false)
     }
@@ -329,13 +376,11 @@ export default function Attendance() {
       const startOfMonth = `${monthStr}-01`
       const endOfMonth = `${monthStr}-${new Date(year, month + 1, 0).getDate()}`
 
-      // Fetch employee's attendance logs in this month
-      const { data: attLogs } = await supabase
+      // Fetch ALL attendance logs for the employee (needed for total/cumulative balance)
+      const { data: allAtt } = await supabase
         .from('attendance')
         .select('*')
         .eq('employee_phone', emp.phone)
-        .gte('attendance_date', startOfMonth)
-        .lte('attendance_date', endOfMonth)
 
       // Fetch all approved leave requests for the employee
       const { data: leaves } = await supabase
@@ -364,37 +409,61 @@ export default function Attendance() {
         .gte('holiday_date', startOfMonth)
         .lte('holiday_date', endOfMonth)
 
-      // Calculate details
+      // Fetch all approved permissions of this employee
+      const { data: allPerms } = await supabase
+        .from('permission_requests')
+        .select('*')
+        .eq('employee_phone', emp.phone)
+        .eq('status', 'Approved')
+
+      // Calculate details for this month
       const daysCount = new Date(year, month + 1, 0).getDate()
+      
       const attendanceMap = {}
-      ;(attLogs || []).forEach(a => {
+      const monthAtt = (allAtt || []).filter(a => a.attendance_date.startsWith(monthStr))
+      monthAtt.forEach(a => {
         attendanceMap[a.attendance_date] = a.status
       })
 
       const holidaySet = new Set((hols || []).map(h => h.holiday_date))
 
+      // Gather leave request dates for this month
       const leaveDaysSet = new Set()
       const compOffUsedDays = []
       const earnedLeaveUsedDays = []
 
       ;(leaves || []).forEach(req => {
-        let curr = new Date(req.start_date)
-        const end = new Date(req.end_date)
+        let curr = new Date(req.start_date + 'T00:00:00')
+        const end = new Date(req.end_date + 'T00:00:00')
         while (curr <= end) {
           const dateStr = curr.toISOString().slice(0, 10)
-          leaveDaysSet.add(dateStr)
-          if (req.leave_type === 'Comp-Off') {
-            compOffUsedDays.push(dateStr)
-          } else if (req.leave_type === 'Earned Leave') {
-            earnedLeaveUsedDays.push(dateStr)
+          if (dateStr.startsWith(monthStr)) {
+            leaveDaysSet.add(dateStr)
+            if (req.leave_type === 'Comp-Off') {
+              compOffUsedDays.push(dateStr)
+            } else if (req.leave_type === 'Earned Leave') {
+              earnedLeaveUsedDays.push(dateStr)
+            }
           }
           curr.setDate(curr.getDate() + 1)
         }
       })
 
+      // Include manual LEAVE records in attendance for this month
+      monthAtt.forEach(a => {
+        if (a.status === 'LEAVE') {
+          const dateStr = a.attendance_date
+          if (!leaveDaysSet.has(dateStr)) {
+            leaveDaysSet.add(dateStr)
+            earnedLeaveUsedDays.push(dateStr) // manual LEAVE defaults to Earned Leave
+          }
+        }
+      })
+
       let normalWorkingDays = 0
       let presentCount = 0
-      let absentOrLeaveCount = 0
+      let leaveCount = 0
+      let lopCount = 0
       let holidayCount = 0
       let weeklyOffCount = 0
       let compOffEarnedToday = 0
@@ -420,8 +489,10 @@ export default function Attendance() {
 
           if (status === 'PRESENT') {
             presentCount++
-          } else if (status === 'ABSENT' || onLeave) {
-            absentOrLeaveCount++
+          } else if (status === 'LEAVE' || onLeave) {
+            leaveCount++
+          } else if (status === 'LOP') {
+            lopCount++
           }
         }
       }
@@ -430,24 +501,31 @@ export default function Attendance() {
       const ledgerRecord = (earnedCredits || []).find(r => r.credit_month === monthStr)
       const earnedLeaveCalculated = ledgerRecord?.earned_credits ?? Math.floor(presentCount / 15)
 
-      const compOffUsedThisMonth = compOffUsedDays.filter(d => d.startsWith(monthStr)).length
-      const earnedLeaveUsedThisMonth = earnedLeaveUsedDays.filter(d => d.startsWith(monthStr)).length
+      const compOffUsedThisMonth = compOffUsedDays.length
+      const earnedLeaveUsedThisMonth = earnedLeaveUsedDays.length
 
-      // Cumulative Balance calculations
+      // Cumulative Balance calculations using de-duplicated helper
       const totalEarnedCredits = (earnedCredits || []).reduce((sum, row) => sum + (row.earned_credits || 0), 0)
-      const totalEarnedLeaveUsed = (leaves || []).filter(r => r.leave_type === 'Earned Leave').reduce((sum, r) => sum + (r.total_days || 0), 0)
-      const currentEarnedLeaveBalance = Math.max(0, (emp.leave_allocation ?? 0) + totalEarnedCredits - totalEarnedLeaveUsed)
+      const usedBalances = calculateHistoricalUsedLeaves(leaves, allAtt)
+      
+      const currentEarnedLeaveBalance = Math.max(0, (emp.leave_allocation ?? 0) + totalEarnedCredits - usedBalances.earnedLeaveUsed)
 
       const totalCompOffCredits = (compoffs || []).reduce((sum, row) => sum + (row.credited_days || 1), 0)
-      const totalCompOffUsed = (leaves || []).filter(r => r.leave_type === 'Comp-Off').reduce((sum, r) => sum + (r.total_days || 0), 0)
-      const currentCompOffBalance = Math.max(0, totalCompOffCredits - totalCompOffUsed)
+      const currentCompOffBalance = Math.max(0, totalCompOffCredits - usedBalances.compOffUsed)
+
+      // Permission Remaining calculation
+      const approvedPermMinutesThisMonth = (allPerms || [])
+        .filter(r => r.permission_date?.startsWith(monthStr))
+        .reduce((sum, r) => sum + (r.duration_minutes || 0), 0)
+      const permissionRemainingHours = Math.max(0, 2.0 - (approvedPermMinutesThisMonth / 60.0))
 
       setSummaryData({
         employee: emp,
         monthStr: new Date(year, month, 1).toLocaleString('default', { month: 'long', year: 'numeric' }),
         normalWorkingDays,
         present: presentCount,
-        absentOrLeave: absentOrLeaveCount,
+        leave: leaveCount,
+        lop: lopCount,
         holidays: holidayCount,
         weeklyOffs: weeklyOffCount,
         earnedLeaveEarned: earnedLeaveCalculated,
@@ -455,7 +533,8 @@ export default function Attendance() {
         compOffUsed: compOffUsedThisMonth,
         earnedLeaveUsed: earnedLeaveUsedThisMonth,
         currentEarnedLeaveBalance,
-        currentCompOffBalance
+        currentCompOffBalance,
+        permissionRemainingHours
       })
     } catch (err) {
       console.error(err)
@@ -499,7 +578,7 @@ export default function Attendance() {
   // Count summaries
   const summaries = useMemo(() => {
     let present = 0
-    let absent = 0
+    let lop = 0
     let leave = 0
     let compoffEarned = 0
 
@@ -514,15 +593,17 @@ export default function Attendance() {
           if (rule === 'Weekly Off') {
             compoffEarned++
           }
-        } else if (status === 'ABSENT') {
-          absent++
+        } else if (status === 'LOP') {
+          lop++
+        } else if (status === 'LEAVE') {
+          leave++
         }
       }
     })
 
     return {
       present,
-      absent,
+      lop,
       leave,
       compoffEarned,
       holidayCount: isCurrentDateHoliday ? 1 : 0
@@ -668,8 +749,8 @@ export default function Attendance() {
           <p className="text-2xl font-bold text-emerald-600 mt-1">{summaries.present}</p>
         </div>
         <div className="bg-white border border-slate-100 rounded-2xl p-4 shadow-sm text-center">
-          <p className="text-xs font-semibold text-slate-400 uppercase">Absent</p>
-          <p className="text-2xl font-bold text-red-600 mt-1">{summaries.absent}</p>
+          <p className="text-xs font-semibold text-slate-400 uppercase">LOP</p>
+          <p className="text-2xl font-bold text-red-600 mt-1">{summaries.lop}</p>
         </div>
         <div className="bg-white border border-slate-100 rounded-2xl p-4 shadow-sm text-center">
           <p className="text-xs font-semibold text-slate-400 uppercase">On Approved Leave</p>
@@ -768,13 +849,15 @@ export default function Attendance() {
                             onChange={e => handleStatusChange(emp, e.target.value)}
                             className={`px-3 py-1.5 text-xs font-bold rounded-lg border focus:outline-none focus:ring-2 focus:ring-blue-100 ${
                               status === 'PRESENT' ? 'bg-emerald-500 text-white border-emerald-500' :
-                              status === 'ABSENT' ? 'bg-red-500 text-white border-red-500' :
+                              status === 'LEAVE' ? 'bg-rose-500 text-white border-rose-500' :
+                              status === 'LOP' ? 'bg-red-500 text-white border-red-500' :
                               'bg-white text-slate-600 border-slate-200'
                             }`}
                           >
                             <option value="" className="bg-white text-slate-600 font-medium">Select Attendance</option>
                             <option value="PRESENT" className="bg-white text-emerald-600 font-bold">Present</option>
-                            <option value="ABSENT" className="bg-white text-red-600 font-bold">Absent</option>
+                            <option value="LEAVE" className="bg-white text-rose-600 font-bold">Leave</option>
+                            <option value="LOP" className="bg-white text-red-600 font-bold">LOP</option>
                           </select>
                         )}
                       </td>
@@ -826,7 +909,7 @@ export default function Attendance() {
             ) : (
               <div className="space-y-5">
                 {/* Stats Grid */}
-                <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
+                <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
                   <div className="bg-slate-50 border border-slate-100 rounded-xl p-3 text-center">
                     <p className="text-[10px] font-bold text-slate-400 uppercase">Working Days</p>
                     <p className="text-xl font-bold text-slate-700 mt-0.5">{summaryData.normalWorkingDays}</p>
@@ -835,9 +918,13 @@ export default function Attendance() {
                     <p className="text-[10px] font-bold text-emerald-500 uppercase">Present</p>
                     <p className="text-xl font-bold text-emerald-700 mt-0.5">{summaryData.present}</p>
                   </div>
+                  <div className="bg-rose-50 border border-rose-100 rounded-xl p-3 text-center">
+                    <p className="text-[10px] font-bold text-rose-500 uppercase">Leave</p>
+                    <p className="text-xl font-bold text-rose-700 mt-0.5">{summaryData.leave}</p>
+                  </div>
                   <div className="bg-red-50 border border-red-100 rounded-xl p-3 text-center">
-                    <p className="text-[10px] font-bold text-red-500 uppercase">Absent/Leave</p>
-                    <p className="text-xl font-bold text-red-700 mt-0.5">{summaryData.absentOrLeave}</p>
+                    <p className="text-[10px] font-bold text-red-500 uppercase">LOP</p>
+                    <p className="text-xl font-bold text-red-700 mt-0.5">{summaryData.lop}</p>
                   </div>
                   <div className="bg-indigo-50 border border-indigo-100 rounded-xl p-3 text-center">
                     <p className="text-[10px] font-bold text-indigo-500 uppercase">Govt Holiday</p>
@@ -850,6 +937,10 @@ export default function Attendance() {
                   <div className="bg-blue-50 border border-blue-100 rounded-xl p-3 text-center">
                     <p className="text-[10px] font-bold text-blue-500 uppercase">Earned Leave (EL)</p>
                     <p className="text-xl font-bold text-blue-700 mt-0.5">+{summaryData.earnedLeaveEarned}</p>
+                  </div>
+                  <div className="bg-purple-50 border border-purple-100 rounded-xl p-3 text-center">
+                    <p className="text-[10px] font-bold text-purple-500 uppercase">Permission Remaining</p>
+                    <p className="text-xl font-bold text-purple-700 mt-0.5">{summaryData.permissionRemainingHours.toFixed(1)} hrs</p>
                   </div>
                 </div>
 

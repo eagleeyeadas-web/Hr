@@ -94,31 +94,75 @@ export default function EmployeeProfile() {
       .select('*')
       .eq('employee_phone', employeePhone)
 
-    // Fetch attendance logs with status 'PRESENT' (representing work logs)
-    const { data: wl } = await supabase
+    // Fetch all attendance logs for the employee (needed for balance calculation)
+    const { data: allAtt } = await supabase
       .from('attendance')
-      .select('*, work_date:attendance_date')
+      .select('*')
       .eq('employee_phone', employeePhone)
-      .eq('status', 'PRESENT')
       .order('attendance_date', { ascending: false })
-    setWorkLogs(wl || [])
+
+    const wl = (allAtt || []).filter(a => a.status === 'PRESENT')
+    setWorkLogs(wl.map(w => ({ ...w, work_date: w.attendance_date })))
+
+    // Helper to calculate historical used leaves securely to prevent double-counting
+    const calculateHistoricalUsedLeaves = (leaves, attendance) => {
+      const compOffUsedDates = new Set()
+      const earnedLeaveUsedDates = new Set()
+      
+      // 1. Process approved leave requests
+      (leaves || []).forEach(req => {
+        if (req.status !== 'Approved') return
+        let curr = new Date(req.start_date + 'T00:00:00')
+        const end = new Date(req.end_date + 'T00:00:00')
+        while (curr <= end) {
+          const dateStr = curr.toISOString().slice(0, 10)
+          if (req.leave_type === 'Comp-Off') {
+            compOffUsedDates.add(dateStr)
+          } else if (req.leave_type === 'Earned Leave') {
+            earnedLeaveUsedDates.add(dateStr)
+          }
+          curr.setDate(curr.getDate() + 1)
+        }
+      })
+
+      // 2. Process manual LEAVE records in attendance
+      (attendance || []).forEach(att => {
+        if (att.status !== 'LEAVE') return
+        const dateStr = att.attendance_date
+        if (compOffUsedDates.has(dateStr) || earnedLeaveUsedDates.has(dateStr)) return
+        
+        // Skip if covered by other approved leave types (Casual, Sick, Emergency, etc.)
+        const hasOtherLeave = (leaves || []).some(req => 
+          req.status === 'Approved' && 
+          req.leave_type !== 'Comp-Off' && 
+          req.leave_type !== 'Earned Leave' &&
+          dateStr >= req.start_date && 
+          dateStr <= req.end_date
+        )
+        if (hasOtherLeave) return
+
+        // Default manual LEAVE status to consume Earned Leave
+        earnedLeaveUsedDates.add(dateStr)
+      })
+
+      return {
+        compOffUsed: compOffUsedDates.size,
+        earnedLeaveUsed: earnedLeaveUsedDates.size
+      }
+    }
+
+    const usedBalances = calculateHistoricalUsedLeaves(leaveHistoryData, allAtt)
 
     // ---- COMP-OFF BALANCE ----
     const compOffEarned = (compoffs || [])
       .filter(r => r.status === 'Approved')
       .reduce((sum, r) => sum + (r.credited_days || 1), 0)
-    const compOffUsed = leaveHistoryData
-      .filter(r => r.status === 'Approved' && r.leave_type === 'Comp-Off')
-      .reduce((sum, r) => sum + (r.total_days || 0), 0)
-    const compOffAvailable = Math.max(0, compOffEarned - compOffUsed)
+    const compOffAvailable = Math.max(0, compOffEarned - usedBalances.compOffUsed)
 
     // ---- EARNED LEAVE BALANCE ----
     const baseAllocation = emp.leave_allocation ?? 0
     const totalEarnedCredits = (earnedCredits || []).reduce((sum, row) => sum + (row.earned_credits || 0), 0)
-    const earnedLeaveUsed = leaveHistoryData
-      .filter(r => r.status === 'Approved' && r.leave_type === 'Earned Leave')
-      .reduce((sum, r) => sum + (r.total_days || 0), 0)
-    const earnedLeaveAvailable = Math.max(0, baseAllocation + totalEarnedCredits - earnedLeaveUsed)
+    const earnedLeaveAvailable = Math.max(0, baseAllocation + totalEarnedCredits - usedBalances.earnedLeaveUsed)
 
     const pendingLeaveCount = leaveHistoryData.filter(r => r.status === 'Pending').length
     const rejectedLeaveCount = leaveHistoryData.filter(r => r.status === 'Rejected').length
