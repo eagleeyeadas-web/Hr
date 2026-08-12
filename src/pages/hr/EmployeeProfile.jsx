@@ -162,7 +162,7 @@ export default function EmployeeProfile() {
     // ---- EARNED LEAVE BALANCE ----
     const baseAllocation = emp.leave_allocation ?? 0
     const totalEarnedCredits = (earnedCredits || []).reduce((sum, row) => sum + (row.earned_credits || 0), 0)
-    const earnedLeaveAvailable = Math.max(0, baseAllocation + totalEarnedCredits - usedBalances.earnedLeaveUsed)
+    const earnedLeaveAvailable = baseAllocation + totalEarnedCredits - usedBalances.earnedLeaveUsed
 
     const pendingLeaveCount = leaveHistoryData.filter(r => r.status === 'Pending').length
     const rejectedLeaveCount = leaveHistoryData.filter(r => r.status === 'Rejected').length
@@ -209,7 +209,7 @@ export default function EmployeeProfile() {
     const rejectedPermCount = permHistoryData.filter(r => r.status === 'Rejected').length
 
     const approvedPermHours = approvedPermMinutesThisMonth / 60.0
-    const permissionAvailable = Math.max(0, basePermAllocation + 2.0 - approvedPermHours)
+    const permissionAvailable = basePermAllocation + 2.0 - approvedPermHours
 
     setPermSummary({
       total: permHistoryData.length,
@@ -229,7 +229,7 @@ export default function EmployeeProfile() {
 
   const handleUpdatePermAllocation = async () => {
     const val = parseFloat(permAllocInput)
-    if (isNaN(val) || val < 0) {
+    if (isNaN(val)) {
       toast.error('Please enter a valid permission hour credit number.')
       return
     }
@@ -253,7 +253,7 @@ export default function EmployeeProfile() {
 
   const handleUpdateAllocation = async () => {
     const val = parseFloat(allocInput)
-    if (isNaN(val) || val < 0) {
+    if (isNaN(val)) {
       toast.error('Please enter a valid leave allocation credit number.')
       return
     }

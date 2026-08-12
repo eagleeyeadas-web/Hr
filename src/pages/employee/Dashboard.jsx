@@ -155,7 +155,7 @@ export default function EmployeeDashboard() {
       // ---- EARNED LEAVE BALANCE ----
       const totalEarnedCredits = (earnedCredits || [])
         .reduce((sum, row) => sum + (row.earned_credits || 0), 0)
-      const earnedLeaveAvailable = Math.max(0, baseAllocation + totalEarnedCredits - usedBalances.earnedLeaveUsed)
+      const earnedLeaveAvailable = baseAllocation + totalEarnedCredits - usedBalances.earnedLeaveUsed
 
       // ---- TOTAL AVAILABLE ----
       const totalAvailableLeave = earnedLeaveAvailable + compOffAvailable
@@ -204,7 +204,7 @@ export default function EmployeeDashboard() {
       const pendingPermCount = permHistoryData.filter(r => r.status === 'Pending').length
 
       const approvedPermHours = approvedPermMinutesThisMonth / 60.0
-      const permissionAvailable = Math.max(0, basePermAllocation + 2.0 - approvedPermHours)
+      const permissionAvailable = basePermAllocation + 2.0 - approvedPermHours
 
       setPermSummary({
         total: permHistoryData.length,

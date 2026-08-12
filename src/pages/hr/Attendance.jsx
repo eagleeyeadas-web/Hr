@@ -508,16 +508,16 @@ export default function Attendance() {
       const totalEarnedCredits = (earnedCredits || []).reduce((sum, row) => sum + (row.earned_credits || 0), 0)
       const usedBalances = calculateHistoricalUsedLeaves(leaves, allAtt)
       
-      const currentEarnedLeaveBalance = Math.max(0, (emp.leave_allocation ?? 0) + totalEarnedCredits - usedBalances.earnedLeaveUsed)
+      const currentEarnedLeaveBalance = (emp.leave_allocation ?? 0) + totalEarnedCredits - usedBalances.earnedLeaveUsed
 
       const totalCompOffCredits = (compoffs || []).reduce((sum, row) => sum + (row.credited_days || 1), 0)
       const currentCompOffBalance = Math.max(0, totalCompOffCredits - usedBalances.compOffUsed)
 
-      // Permission Remaining calculation
+      // Permission Remaining calculation (including base allocation)
       const approvedPermMinutesThisMonth = (allPerms || [])
         .filter(r => r.permission_date?.startsWith(monthStr))
         .reduce((sum, r) => sum + (r.duration_minutes || 0), 0)
-      const permissionRemainingHours = Math.max(0, 2.0 - (approvedPermMinutesThisMonth / 60.0))
+      const permissionRemainingHours = (emp.permission_allocation ?? 0) + 2.0 - (approvedPermMinutesThisMonth / 60.0)
 
       setSummaryData({
         employee: emp,
