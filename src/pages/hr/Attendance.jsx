@@ -754,7 +754,7 @@ export default function Attendance() {
         </div>
         <div className="bg-white border border-slate-100 rounded-2xl p-4 shadow-sm text-center">
           <p className="text-xs font-semibold text-slate-400 uppercase">On Approved Leave</p>
-          <p className="text-2xl font-bold text-rose-600 mt-1">{summaries.leave}</p>
+          <p className="text-2xl font-bold text-amber-500 mt-1">{summaries.leave}</p>
         </div>
         <div className="bg-white border border-slate-100 rounded-2xl p-4 shadow-sm text-center">
           <p className="text-xs font-semibold text-slate-400 uppercase">Government Holiday</p>
@@ -840,7 +840,7 @@ export default function Attendance() {
                             🏛 Government Holiday
                           </span>
                         ) : onLeave ? (
-                          <span className="text-xs font-bold text-rose-600 bg-rose-50 border border-rose-100 rounded-lg px-3 py-1.5" title={`${onLeave} Approved`}>
+                          <span className="text-xs font-bold text-amber-700 bg-amber-50 border border-amber-100 rounded-lg px-3 py-1.5" title={`${onLeave} Approved`}>
                             🌴 Leave ({onLeave})
                           </span>
                         ) : (
@@ -849,14 +849,14 @@ export default function Attendance() {
                             onChange={e => handleStatusChange(emp, e.target.value)}
                             className={`px-3 py-1.5 text-xs font-bold rounded-lg border focus:outline-none focus:ring-2 focus:ring-blue-100 ${
                               status === 'PRESENT' ? 'bg-emerald-500 text-white border-emerald-500' :
-                              status === 'LEAVE' ? 'bg-rose-500 text-white border-rose-500' :
+                              status === 'LEAVE' ? 'bg-amber-500 text-white border-amber-500' :
                               status === 'LOP' ? 'bg-red-500 text-white border-red-500' :
                               'bg-white text-slate-600 border-slate-200'
                             }`}
                           >
                             <option value="" className="bg-white text-slate-600 font-medium">Select Attendance</option>
                             <option value="PRESENT" className="bg-white text-emerald-600 font-bold">Present</option>
-                            <option value="LEAVE" className="bg-white text-rose-600 font-bold">Leave</option>
+                            <option value="LEAVE" className="bg-white text-amber-600 font-bold">Leave</option>
                             <option value="LOP" className="bg-white text-red-600 font-bold">LOP</option>
                           </select>
                         )}

@@ -331,7 +331,7 @@ export default function EmployeeDashboard() {
               <span className="text-slate-500 font-medium">LOP ({attendanceDays.filter(d => d.status === 'lop').length})</span>
             </div>
             <div className="flex items-center gap-1.5">
-              <span className="w-3 h-3 rounded bg-rose-500 inline-block" />
+              <span className="w-3 h-3 rounded bg-amber-500 inline-block" />
               <span className="text-slate-500 font-medium">On Leave ({attendanceDays.filter(d => d.status === 'leave').length})</span>
             </div>
             <div className="flex items-center gap-1.5">
@@ -364,7 +364,7 @@ export default function EmployeeDashboard() {
               const statusColors = {
                 present: 'bg-emerald-500 text-white border-emerald-500 shadow-sm shadow-emerald-100',
                 lop: 'bg-red-600 text-white border-red-600 shadow-sm shadow-red-100',
-                leave: 'bg-rose-500 text-white border-rose-500 shadow-sm shadow-rose-100',
+                leave: 'bg-amber-500 text-white border-amber-500 shadow-sm shadow-amber-100',
                 holiday: 'bg-indigo-600 text-white border-indigo-600 shadow-sm shadow-indigo-100',
                 none: 'bg-white text-slate-400 border-slate-200/60 hover:bg-slate-100/30',
               }
