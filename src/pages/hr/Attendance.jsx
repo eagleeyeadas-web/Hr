@@ -690,12 +690,12 @@ export default function Attendance() {
             <CheckCircle size={16} /> Mark All Present
           </Button>
           <Button
-            onClick={handleMarkAllAbsent}
+            onClick={handleMarkAllLOP}
             loading={actionLoading}
             variant="danger"
             className="flex-1 sm:flex-initial flex items-center justify-center gap-1.5 min-h-[44px] font-semibold text-sm"
           >
-            <AlertCircle size={16} /> Mark All Absent
+            <AlertCircle size={16} /> Mark All LOP
           </Button>
           <Button
             onClick={handleToggleGovernmentHoliday}
