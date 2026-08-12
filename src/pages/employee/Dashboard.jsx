@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react'
 import { Link } from 'react-router-dom'
-import { CalendarOff, Clock, CheckCircle, AlertCircle, History, Calendar, BookOpen, TrendingUp } from 'lucide-react'
+import { CalendarOff, Clock, CheckCircle, AlertCircle, History, Calendar, BookOpen, TrendingUp, ChevronLeft, ChevronRight } from 'lucide-react'
 import { supabase } from '../../lib/supabase'
 import { useAuth } from '../../context/AuthContext'
 import { StatCard, PageLoader } from '../../components/ui/Spinner'
@@ -9,12 +9,28 @@ import { formatDate, formatTime, formatDuration } from '../../lib/utils'
 
 export default function EmployeeDashboard() {
   const { employee } = useAuth()
+  const [trackerYear, setTrackerYear] = useState(new Date().getFullYear())
+  const [trackerMonth, setTrackerMonth] = useState(new Date().getMonth())
   const [leaveSummary, setLeaveSummary] = useState(null)
   const [permSummary, setPermSummary] = useState(null)
   const [recentLeave, setRecentLeave] = useState([])
   const [recentPerms, setRecentPerms] = useState([])
   const [attendanceDays, setAttendanceDays] = useState([])
   const [loading, setLoading] = useState(true)
+
+  const handleMonthChange = (direction) => {
+    let nextMonth = trackerMonth + direction
+    let nextYear = trackerYear
+    if (nextMonth < 0) {
+      nextMonth = 11
+      nextYear--
+    } else if (nextMonth > 11) {
+      nextMonth = 0
+      nextYear++
+    }
+    setTrackerMonth(nextMonth)
+    setTrackerYear(nextYear)
+  }
 
   useEffect(() => {
     if (!employee) return
@@ -56,15 +72,15 @@ export default function EmployeeDashboard() {
         .select('*')
         .eq('employee_phone', employee.phone)
 
-      const currentMonthStr = new Date().toISOString().slice(0, 7)
-      const attendanceList = (allAtt || []).filter(a => a.attendance_date.startsWith(currentMonthStr))
+      const monthStr = `${trackerYear}-${String(trackerMonth + 1).padStart(2, '0')}`
+      const attendanceList = (allAtt || []).filter(a => a.attendance_date.startsWith(monthStr))
 
-      // Fetch current month's government holidays
+      // Fetch government holidays for target month
       const { data: hols } = await supabase
         .from('government_holidays')
         .select('holiday_date')
-        .gte('holiday_date', `${currentMonthStr}-01`)
-        .lte('holiday_date', `${currentMonthStr}-31`)
+        .gte('holiday_date', `${monthStr}-01`)
+        .lte('holiday_date', `${monthStr}-31`)
 
       const leaveHistoryData = leaves || []
       const thisMonthLogs = attendanceList
@@ -147,7 +163,7 @@ export default function EmployeeDashboard() {
       // ---- PENDING COUNT ----
       const pendingLeaveCount = leaveHistoryData.filter(r => r.status === 'Pending').length
 
-      // ---- CURRENT MONTH PROGRESS ----
+      // ---- SELECTED MONTH PROGRESS ----
       const holidaySet = new Set((hols || []).map(h => h.holiday_date))
       const eligibleLogs = thisMonthLogs.filter(log => {
         const d = new Date(log.work_date + 'T00:00:00')
@@ -159,7 +175,7 @@ export default function EmployeeDashboard() {
 
       const workedDaysThisMonth = eligibleLogs.length
       const earnedThisMonth = Math.floor(workedDaysThisMonth / 15)
-      const thisMonthLedger = (earnedCredits || []).find(r => r.credit_month === currentMonthStr)
+      const thisMonthLedger = (earnedCredits || []).find(r => r.credit_month === monthStr)
 
       setLeaveSummary({
         earned_leave_available: earnedLeaveAvailable,
@@ -168,7 +184,7 @@ export default function EmployeeDashboard() {
         pending: pendingLeaveCount,
         worked_days_this_month: workedDaysThisMonth,
         earned_this_month: thisMonthLedger?.earned_credits ?? earnedThisMonth,
-        current_month: currentMonthStr,
+        current_month: monthStr,
       })
       setRecentLeave(leaveHistoryData.slice(0, 4))
 
@@ -182,7 +198,7 @@ export default function EmployeeDashboard() {
       const permHistoryData = perms || []
 
       const approvedPermMinutesThisMonth = permHistoryData
-        .filter(r => r.status === 'Approved' && r.permission_date?.startsWith(currentMonthStr))
+        .filter(r => r.status === 'Approved' && r.permission_date?.startsWith(monthStr))
         .reduce((sum, r) => sum + (r.duration_minutes || 0), 0)
 
       const pendingPermCount = permHistoryData.filter(r => r.status === 'Pending').length
@@ -198,16 +214,13 @@ export default function EmployeeDashboard() {
       })
       setRecentPerms(permHistoryData.slice(0, 4))
 
-      // Generate attendance grid for current month
-      const todayVal = new Date()
-      const yearVal = todayVal.getFullYear()
-      const monthIndexVal = todayVal.getMonth()
-      const daysCount = new Date(yearVal, monthIndexVal + 1, 0).getDate()
+      // Generate attendance grid for target month
+      const daysCount = new Date(trackerYear, trackerMonth + 1, 0).getDate()
       
       const days = []
       for (let d = 1; d <= daysCount; d++) {
-        const dateStr = `${yearVal}-${String(monthIndexVal + 1).padStart(2, '0')}-${String(d).padStart(2, '0')}`
-        const attRecord = attendanceList.find(a => a.attendance_date === dateStr)
+        const dateStr = `${trackerYear}-${String(trackerMonth + 1).padStart(2, '0')}-${String(d).padStart(2, '0')}`
+        const attRecord = (allAtt || []).find(a => a.attendance_date === dateStr)
         const isHoliday = holidaySet.has(dateStr)
         const isLeave = leaveHistoryData.some(req => {
           if (req.status !== 'Approved') return false
@@ -232,14 +245,12 @@ export default function EmployeeDashboard() {
       setLoading(false)
     }
     fetchData()
-  }, [employee])
+  }, [employee, trackerYear, trackerMonth])
 
   if (loading || !employee) return <PageLoader />
 
   const firstName = employee.full_name?.split(' ')[0] || 'there'
-  const monthLabel = leaveSummary?.current_month
-    ? new Date(leaveSummary.current_month + '-01').toLocaleString('default', { month: 'long', year: 'numeric' })
-    : ''
+  const monthLabel = new Date(trackerYear, trackerMonth, 1).toLocaleString('default', { month: 'long', year: 'numeric' })
 
   return (
     <div className="space-y-6">
@@ -316,9 +327,27 @@ export default function EmployeeDashboard() {
       {/* Monthly Attendance Tracker Calendar */}
       <div className="bg-white rounded-xl border border-slate-100 p-5">
         <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 mb-4">
-          <div className="flex items-center gap-2">
+          <div className="flex items-center gap-3">
             <Calendar size={16} className="text-blue-500" />
             <h2 className="text-sm font-semibold text-slate-700">Monthly Attendance Tracker — {monthLabel}</h2>
+            <div className="flex items-center gap-1 ml-2">
+              <button
+                type="button"
+                onClick={() => handleMonthChange(-1)}
+                className="p-1 rounded-md border border-slate-200 hover:bg-slate-50 text-slate-600 transition"
+                title="Previous Month"
+              >
+                <ChevronLeft size={14} />
+              </button>
+              <button
+                type="button"
+                onClick={() => handleMonthChange(1)}
+                className="p-1 rounded-md border border-slate-200 hover:bg-slate-50 text-slate-600 transition"
+                title="Next Month"
+              >
+                <ChevronRight size={14} />
+              </button>
+            </div>
           </div>
           {/* Legend */}
           <div className="flex flex-wrap items-center gap-3 text-xs">
@@ -355,7 +384,7 @@ export default function EmployeeDashboard() {
           {/* Days Grid */}
           <div className="grid grid-cols-7 gap-1.5 text-center">
             {/* Blank padding prefix cells */}
-            {Array.from({ length: new Date(new Date().getFullYear(), new Date().getMonth(), 1).getDay() }).map((_, i) => (
+            {Array.from({ length: new Date(trackerYear, trackerMonth, 1).getDay() }).map((_, i) => (
               <div key={`empty-${i}`} className="aspect-square" />
             ))}
             
