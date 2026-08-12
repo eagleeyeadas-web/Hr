@@ -73,30 +73,30 @@ export default function EmployeeDashboard() {
 
       // Helper to calculate historical used leaves securely to prevent double-counting
       const calculateHistoricalUsedLeaves = (leaves, attendance) => {
-        const compOffUsedDates = new Set()
-        const earnedLeaveUsedDates = new Set()
+        const compOffUsedDates = new Set();
+        const earnedLeaveUsedDates = new Set();
         
         // 1. Process approved leave requests
         (leaves || []).forEach(req => {
-          if (req.status !== 'Approved') return
-          let curr = new Date(req.start_date + 'T00:00:00')
-          const end = new Date(req.end_date + 'T00:00:00')
+          if (req.status !== 'Approved') return;
+          let curr = new Date(req.start_date + 'T00:00:00');
+          const end = new Date(req.end_date + 'T00:00:00');
           while (curr <= end) {
-            const dateStr = curr.toISOString().slice(0, 10)
+            const dateStr = curr.toISOString().slice(0, 10);
             if (req.leave_type === 'Comp-Off') {
-              compOffUsedDates.add(dateStr)
+              compOffUsedDates.add(dateStr);
             } else if (req.leave_type === 'Earned Leave') {
-              earnedLeaveUsedDates.add(dateStr)
+              earnedLeaveUsedDates.add(dateStr);
             }
-            curr.setDate(curr.getDate() + 1)
+            curr.setDate(curr.getDate() + 1);
           }
-        })
+        });
 
         // 2. Process manual LEAVE records in attendance
         (attendance || []).forEach(att => {
-          if (att.status !== 'LEAVE') return
-          const dateStr = att.attendance_date
-          if (compOffUsedDates.has(dateStr) || earnedLeaveUsedDates.has(dateStr)) return
+          if (att.status !== 'LEAVE') return;
+          const dateStr = att.attendance_date;
+          if (compOffUsedDates.has(dateStr) || earnedLeaveUsedDates.has(dateStr)) return;
           
           // Skip if covered by other approved leave types (Casual, Sick, Emergency, etc.)
           const hasOtherLeave = (leaves || []).some(req => 
@@ -105,17 +105,17 @@ export default function EmployeeDashboard() {
             req.leave_type !== 'Earned Leave' &&
             dateStr >= req.start_date && 
             dateStr <= req.end_date
-          )
-          if (hasOtherLeave) return
+          );
+          if (hasOtherLeave) return;
 
           // Default manual LEAVE status to consume Earned Leave
-          earnedLeaveUsedDates.add(dateStr)
-        })
+          earnedLeaveUsedDates.add(dateStr);
+        });
 
         return {
           compOffUsed: compOffUsedDates.size,
           earnedLeaveUsed: earnedLeaveUsedDates.size
-        }
+        };
       }
 
       const usedBalances = calculateHistoricalUsedLeaves(leaveHistoryData, allAtt)
